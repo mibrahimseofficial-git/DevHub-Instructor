@@ -9,19 +9,34 @@
  *
  * DESIGN NOTES — read before changing anything
  * ---------------------------------------------
- * This is deliberately independent of ListingPro's own plan-expiry system
- * (functions.php: lp_expire_this_listing / lp_daily_cron_listings). That
- * system is driven by the 'lp_purchase_days' sub-key inside the
- * 'lp_listingpro_options' meta array, and — critically — once it matches a
- * listing it sets post_status to 'expired' (unpublishes it) regardless of
- * whether a fallback plan is configured. That's correct for a real paid
- * plan lapsing, but wrong for a trial: the client wants a trial to fall
- * back to a *visible* Free listing, not disappear.
+ * Trial state lives in its own meta keys (prefixed _ip_trial_) and is
+ * managed by its own daily cron, so a trial downgrades to a *visible* Free
+ * listing instead of disappearing. Nothing here changes any global
+ * ListingPro setting.
  *
- * So trial state lives entirely in its own meta keys (prefixed _ip_trial_)
- * and is managed by its own daily cron. 'lp_purchase_days' is never set on
- * a trial listing, so ListingPro's own cron never touches it. Nothing here
- * changes any global ListingPro setting.
+ * ListingPro's own expiry system is deliberately kept out of the picture.
+ * lp_expire_this_listing (theme functions.php) selects every listing whose
+ * nested options array contains 'lp_purchase_days', then sets post_status to
+ * 'expired' (unpublishes it) once that many days have passed, regardless of
+ * any fallback plan. That's right for a real paid plan lapsing, wrong for a
+ * trial. ListingPro's submit handler always writes that key — including for
+ * free listings (submit-ajax.php) — so a trial has to actively remove it.
+ * See ip_trial_purge_purchase_days(). The key is deleted rather than zeroed,
+ * because the cron matches on the key merely existing.
+ *
+ * Two different meta keys carry a listing's plan, and both must be written
+ * for a trial to behave like a real Premium purchase:
+ *  - 'lp_listingpro_options'['Plan_id'] (nested) — read by ListingPro's
+ *    expiry cron and its metabox helpers.
+ *  - 'plan_id' (top-level) — read by the search-sort JOIN that ranks
+ *    listings, in theme/listingpro/include/find-instructor-ajax.php. A
+ *    trial that sets only the nested key still sorts as Free.
+ * ip_trial_apply_plan() writes both.
+ *
+ * ListingPro's save_post handler (plugin/listingpro-plugin/functions.php)
+ * unconditionally copies Plan_id and plan_time back from the edit screen, so
+ * saving a trial listing in wp-admin reverted the plan and re-added
+ * 'lp_purchase_days'. ip_trial_reassert_on_save() runs after it to undo that.
  *
  * PLAN IDENTIFICATION
  * --------------------
@@ -45,8 +60,8 @@
  * WHERE THE BADGE GOES
  * ----------------------
  * ip_trial_badge_html() and the [ip_trial_badge] shortcode return the
- * markup — call whichever from the actual single-listing template in use.
- * See AUDIT-TRIAL.md for the one line to add and where.
+ * markup. The badge is NOT injected automatically — place the shortcode in
+ * the single-listing template or an Elementor Shortcode widget.
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -118,7 +133,50 @@ function ip_trial_get_free_plan_id() {
 }
 
 /* =====================================================================
- * 2. GRANT THE TRIAL — on first publish, if no payment was made
+ * 2. PLAN APPLICATION — write both plan keys, clear the expiry field
+ * ===================================================================== */
+
+/**
+ * Point a listing at a plan, in both places ListingPro reads a plan from.
+ *
+ * The nested options key is what the metabox helpers and the expiry cron
+ * read; the top-level key is what the search-sort JOIN reads. Writing only
+ * the nested one leaves the listing ranked as though it were still on the
+ * plan it was submitted with.
+ *
+ * @param int $listing_id
+ * @param int $plan_id
+ */
+function ip_trial_apply_plan( $listing_id, $plan_id ) {
+	listing_set_metabox( 'Plan_id', $plan_id, $listing_id );
+	update_post_meta( $listing_id, 'plan_id', $plan_id );
+}
+
+/**
+ * Remove 'lp_purchase_days' from a listing's nested options array.
+ *
+ * ListingPro's submit handler writes this for every listing it creates,
+ * free ones included. Its daily cron selects any listing whose options
+ * array contains the key — matching on the key existing, not on its value —
+ * and unpublishes the listing once that many days have elapsed. Deleting the
+ * key (rather than setting it to 0 or '') is what takes the listing out of
+ * that query.
+ *
+ * @param int $listing_id
+ */
+function ip_trial_purge_purchase_days( $listing_id ) {
+	$metabox = get_post_meta( $listing_id, 'lp_' . strtolower( THEMENAME ) . '_options', true );
+	if ( ! is_array( $metabox ) || ! array_key_exists( 'lp_purchase_days', $metabox ) ) {
+		return;
+	}
+
+	unset( $metabox['lp_purchase_days'] );
+	update_post_meta( $listing_id, 'lp_' . strtolower( THEMENAME ) . '_options', $metabox );
+}
+
+
+/* =====================================================================
+ * 3. GRANT THE TRIAL — on first publish, if no payment was made
  * ===================================================================== */
 
 add_action( 'transition_post_status', 'ip_trial_maybe_grant_on_publish', 10, 3 );
@@ -183,7 +241,8 @@ function ip_trial_maybe_grant_on_publish( $new_status, $old_status, $post ) {
 	}
 
 	// Grant the trial.
-	listing_set_metabox( 'Plan_id', $premium_id, $listing_id );
+	ip_trial_apply_plan( $listing_id, $premium_id );
+	ip_trial_purge_purchase_days( $listing_id );
 
 	$now = current_time( 'timestamp' ); // phpcs:ignore WordPress.DateTime.CurrentTimeTimestamp
 	update_post_meta( $listing_id, '_ip_trial_active', 'yes' );
@@ -195,7 +254,7 @@ function ip_trial_maybe_grant_on_publish( $new_status, $old_status, $post ) {
 }
 
 /* =====================================================================
- * 3. DAILY CHECK — reminder email, then downgrade at expiry
+ * 4. DAILY CHECK — reminder email, then downgrade at expiry
  * ===================================================================== */
 
 add_action( 'wp', 'ip_trial_schedule_cron' );
@@ -256,8 +315,9 @@ function ip_trial_run_daily_check() {
 function ip_trial_downgrade( $listing_id ) {
 	$free_id = ip_trial_get_free_plan_id();
 	if ( $free_id ) {
-		listing_set_metabox( 'Plan_id', $free_id, $listing_id );
+		ip_trial_apply_plan( $listing_id, $free_id );
 	}
+	ip_trial_purge_purchase_days( $listing_id );
 
 	update_post_meta( $listing_id, '_ip_trial_active', 'no' );
 	update_post_meta( $listing_id, '_ip_trial_ended', current_time( 'timestamp' ) ); // phpcs:ignore WordPress.DateTime.CurrentTimeTimestamp
@@ -266,7 +326,63 @@ function ip_trial_downgrade( $listing_id ) {
 }
 
 /* =====================================================================
- * 4. COUNTDOWN BADGE — call from a template, or use the shortcode
+ * 5. RE-ASSERT ON SAVE — stop ListingPro's metabox save reverting a trial
+ * ===================================================================== */
+
+add_action( 'save_post_listing', 'ip_trial_reassert_on_save', 99, 3 );
+/**
+ * Re-apply the correct plan after any listing save.
+ *
+ * ListingPro's own save_post handler (plugin/listingpro-plugin/functions.php)
+ * reads Plan_id and plan_time straight from the edit screen and writes them
+ * back, so merely opening a trial listing in wp-admin and clicking Update
+ * silently reverted it to whatever plan the form had selected — and re-added
+ * 'lp_purchase_days' along with it.
+ *
+ * This runs at priority 99, after that handler, and the two hooks fire in
+ * the order save_post -> save_post_{post_type}, so it also runs after the
+ * save_post handlers regardless of their priority.
+ *
+ * @param int     $post_id
+ * @param WP_Post $post
+ * @param bool    $update
+ */
+function ip_trial_reassert_on_save( $post_id, $post, $update ) {
+	if ( wp_is_post_revision( $post_id ) || wp_is_post_autosave( $post_id ) ) {
+		return;
+	}
+
+	$decided = get_post_meta( $post_id, '_ip_trial_decided', true );
+
+	if ( 'trial_granted' === $decided ) {
+		$premium_id = ip_trial_get_premium_plan_id();
+		if ( $premium_id ) {
+			ip_trial_apply_plan( $post_id, $premium_id );
+		}
+		ip_trial_purge_purchase_days( $post_id );
+		return;
+	}
+
+	if ( 'yes' === get_post_meta( $post_id, '_ip_trial_active', true ) ) {
+		// Defensive: an active trial whose decided marker went missing. Re-assert
+		// the plan but don't re-stamp a start time or re-send the email.
+		$premium_id = ip_trial_get_premium_plan_id();
+		if ( $premium_id ) {
+			ip_trial_apply_plan( $post_id, $premium_id );
+		}
+		ip_trial_purge_purchase_days( $post_id );
+		return;
+	}
+
+	if ( 'yes' === get_post_meta( $post_id, '_ip_trial_ended', true ) ) {
+		// Trial finished: it must stay on Free, and must stay out of the expiry cron.
+		ip_trial_purge_purchase_days( $post_id );
+	}
+}
+
+
+/* =====================================================================
+ * 6. COUNTDOWN BADGE — call from a template, or use the shortcode
  * ===================================================================== */
 
 /**
@@ -314,7 +430,7 @@ function ip_trial_badge_shortcode( $atts ) {
 }
 
 /* =====================================================================
- * 5. EMAILS
+ * 7. EMAILS
  * ===================================================================== */
 
 /**
