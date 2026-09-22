@@ -52,10 +52,19 @@
  *
  * WHO GETS A TRIAL
  * -----------------
- * Only an author's very first published listing, and only if it was
- * submitted without payment (Plan_id is empty, 'none', or already the Free
- * plan). Anyone who pays for Standard or Premium at signup is never
- * touched — this mirrors a real purchase, so it's left alone.
+ * A user gets a trial once, ever — tracked on the user account (user meta
+ * '_ip_trial_used'), not on the listing. An earlier version keyed off "the
+ * author's first published listing", which leaked: ListingPro sets a lapsed
+ * listing to post_status 'expired' and new submissions sit at 'pending', so
+ * neither matched a post_status='publish' check and a user could collect a
+ * fresh trial by letting listings lapse or by submitting a second one. The
+ * user-level flag closes that. It is claimed at grant time, so a user
+ * cannot end up with two concurrent trials.
+ *
+ * And only if the listing was submitted without payment (Plan_id is empty,
+ * 'none', or already the Free plan). Anyone who pays for Standard or Premium
+ * at signup is never touched — this mirrors a real purchase, so it's left
+ * alone, and paying does not consume the trial.
  *
  * WHERE THE BADGE GOES
  * ----------------------
@@ -70,6 +79,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 define( 'IP_TRIAL_DAYS', 30 );
 define( 'IP_TRIAL_REMINDER_DAYS_BEFORE', 3 ); // Send the "ending soon" email this many days before expiry.
+define( 'IP_TRIAL_USER_META', '_ip_trial_used' ); // User meta: set once the user has ever been granted a trial.
 
 /* =====================================================================
  * 1. PLAN RESOLUTION — dynamic, cached per-request
@@ -176,7 +186,7 @@ function ip_trial_purge_purchase_days( $listing_id ) {
 
 
 /* =====================================================================
- * 3. GRANT THE TRIAL — on first publish, if no payment was made
+ * 3. GRANT THE TRIAL — once per user, on first publish, if no payment was made
  * ===================================================================== */
 
 add_action( 'transition_post_status', 'ip_trial_maybe_grant_on_publish', 10, 3 );
@@ -209,17 +219,11 @@ function ip_trial_maybe_grant_on_publish( $new_status, $old_status, $post ) {
 		return;
 	}
 
-	// Only an author's very first published listing counts as "a new instructor signing up".
-	$existing = get_posts( array(
-		'post_type'      => 'listing',
-		'post_status'    => 'publish',
-		'author'         => $post->post_author,
-		'posts_per_page' => 1,
-		'exclude'        => array( $listing_id ),
-		'fields'         => 'ids',
-	) );
-	if ( ! empty( $existing ) ) {
-		update_post_meta( $listing_id, '_ip_trial_decided', 'not_first_listing' );
+	// A trial is once per user, ever. Keyed on the account rather than on
+	// listings, so it can't be re-earned by letting a listing lapse or by
+	// submitting another one.
+	if ( get_user_meta( $post->post_author, IP_TRIAL_USER_META, true ) ) {
+		update_post_meta( $listing_id, '_ip_trial_decided', 'trial_already_used' );
 		return;
 	}
 
@@ -250,11 +254,57 @@ function ip_trial_maybe_grant_on_publish( $new_status, $old_status, $post ) {
 	update_post_meta( $listing_id, '_ip_trial_reminder_sent', 'no' );
 	update_post_meta( $listing_id, '_ip_trial_decided', 'trial_granted' );
 
+	// Claim the user-level flag, marking the trial as spent. Done here rather
+	// than at downgrade so that a user with a running trial can't start a
+	// second one; done last so a request that dies part-way leaves the
+	// listing marked granted rather than burning the user's one trial with
+	// nothing to show for it.
+	update_user_meta( $post->post_author, IP_TRIAL_USER_META, $listing_id );
+
 	ip_trial_send_email( $listing_id, 'start' );
 }
 
+
 /* =====================================================================
- * 4. DAILY CHECK — reminder email, then downgrade at expiry
+ * 4. ONE-TIME BACKFILL — seed the user flag from existing trials
+ * ===================================================================== */
+
+add_action( 'admin_init', 'ip_trial_backfill_user_flags' );
+/**
+ * Runs once. Any listing granted a trial before the flag existed would
+ * otherwise leave its author eligible for a second one, since the old code
+ * tracked eligibility on listings, not users.
+ */
+function ip_trial_backfill_user_flags() {
+	if ( get_option( 'ip_trial_user_flags_backfilled' ) ) {
+		return;
+	}
+
+	$granted = get_posts( array(
+		'post_type'      => 'listing',
+		'post_status'    => 'any',
+		'posts_per_page' => -1,
+		'fields'         => 'ids',
+		'meta_query'     => array(
+			array(
+				'key'   => '_ip_trial_decided',
+				'value' => 'trial_granted',
+			),
+		),
+	) );
+
+	foreach ( $granted as $listing_id ) {
+		$author_id = (int) get_post_field( 'post_author', $listing_id );
+		if ( $author_id && ! get_user_meta( $author_id, IP_TRIAL_USER_META, true ) ) {
+			update_user_meta( $author_id, IP_TRIAL_USER_META, $listing_id );
+		}
+	}
+
+	update_option( 'ip_trial_user_flags_backfilled', 1 );
+}
+
+/* =====================================================================
+ * 5. DAILY CHECK — reminder email, then downgrade at expiry
  * ===================================================================== */
 
 add_action( 'wp', 'ip_trial_schedule_cron' );
@@ -326,7 +376,7 @@ function ip_trial_downgrade( $listing_id ) {
 }
 
 /* =====================================================================
- * 5. RE-ASSERT ON SAVE — stop ListingPro's metabox save reverting a trial
+ * 6. RE-ASSERT ON SAVE — stop ListingPro's metabox save reverting a trial
  * ===================================================================== */
 
 add_action( 'save_post', 'ip_trial_reassert_on_save', 99, 3 );
@@ -390,7 +440,7 @@ function ip_trial_reassert_on_save( $post_id, $post, $update ) {
 
 
 /* =====================================================================
- * 6. COUNTDOWN BADGE — call from a template, or use the shortcode
+ * 7. COUNTDOWN BADGE — call from a template, or use the shortcode
  * ===================================================================== */
 
 /**
@@ -438,7 +488,7 @@ function ip_trial_badge_shortcode( $atts ) {
 }
 
 /* =====================================================================
- * 7. EMAILS
+ * 8. EMAILS
  * ===================================================================== */
 
 /**
