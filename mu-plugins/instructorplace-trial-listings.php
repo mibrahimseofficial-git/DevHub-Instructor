@@ -52,16 +52,32 @@
  *
  * WHO GETS A TRIAL
  * -----------------
- * A user gets a trial once, ever — tracked on the user account (user meta
- * '_ip_trial_used'), not on the listing. An earlier version keyed off "the
- * author's first published listing", which leaked: ListingPro sets a lapsed
- * listing to post_status 'expired' and new submissions sit at 'pending', so
- * neither matched a post_status='publish' check and a user could collect a
- * fresh trial by letting listings lapse or by submitting a second one. The
- * user-level flag closes that. It is claimed at grant time, so a user
- * cannot end up with two concurrent trials.
+ * Two conditions, both required:
+ *  1. Once per user, ever. Tracked on the user account in user meta
+ *     '_ip_trial_used' (IP_TRIAL_USER_META). This is the rule that closes
+ *     the old hole: eligibility used to be inferred from listings alone,
+ *     checked with post_status='publish', and since ListingPro sets a lapsed
+ *     listing to 'expired' and new submissions sit at 'pending', neither
+ *     matched — so a user could collect a fresh trial by letting listings
+ *     lapse or by submitting a second one. A user-level flag is immune to
+ *     all of that. It is written when the trial is granted and never
+ *     cleared, so the user's one trial is spent for good.
+ *  2. On the author's first published listing, excluding the listing being
+ *     published now. Anything else of theirs already live means this is a
+ *     later listing.
  *
- * And only if the listing was submitted without payment (Plan_id is empty,
+ * Both are checked before anything is written. An earlier version of rule 1
+ * replaced rule 2 outright, which removed the "first listing" intent and let
+ * a user with zero published listings collect a trial on a second
+ * submission while the first was still awaiting approval.
+ *
+ * A user with no published listing of their own therefore always gets the
+ * trial, however many attempts or pending drafts precede it. That is the
+ * intended meaning of "first published listing" and also matches the
+ * admin-approval flow, where a pending listing sits unpublished until an
+ * admin approves it.
+ *
+ * Only if the listing was submitted without payment (Plan_id is empty,
  * 'none', or already the Free plan). Anyone who pays for Standard or Premium
  * at signup is never touched — this mirrors a real purchase, so it's left
  * alone, and paying does not consume the trial.
@@ -220,10 +236,27 @@ function ip_trial_maybe_grant_on_publish( $new_status, $old_status, $post ) {
 	}
 
 	// A trial is once per user, ever. Keyed on the account rather than on
-	// listings, so it can't be re-earned by letting a listing lapse or by
-	// submitting another one.
+	// listings, so it can't be re-earned by letting a listing lapse, by
+	// deleting the trial listing, or by submitting another one.
 	if ( get_user_meta( $post->post_author, IP_TRIAL_USER_META, true ) ) {
 		update_post_meta( $listing_id, '_ip_trial_decided', 'trial_already_used' );
+		return;
+	}
+
+	// ...and only on the author's first *published* listing. Both rules apply:
+	// a user gets one trial, on the first listing of theirs that goes live.
+	// Current listing excluded; anything else already published means this is
+	// a later listing.
+	$already_published = get_posts( array(
+		'post_type'      => 'listing',
+		'post_status'    => 'publish',
+		'author'         => $post->post_author,
+		'posts_per_page' => 1,
+		'post__not_in'   => array( $listing_id ),
+		'fields'         => 'ids',
+	) );
+	if ( ! empty( $already_published ) ) {
+		update_post_meta( $listing_id, '_ip_trial_decided', 'not_first_listing' );
 		return;
 	}
 
