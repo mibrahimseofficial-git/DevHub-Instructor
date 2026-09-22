@@ -329,25 +329,33 @@ function ip_trial_downgrade( $listing_id ) {
  * 5. RE-ASSERT ON SAVE — stop ListingPro's metabox save reverting a trial
  * ===================================================================== */
 
-add_action( 'save_post_listing', 'ip_trial_reassert_on_save', 99, 3 );
+add_action( 'save_post', 'ip_trial_reassert_on_save', 99, 3 );
 /**
  * Re-apply the correct plan after any listing save.
  *
- * ListingPro's own save_post handler (plugin/listingpro-plugin/functions.php)
- * reads Plan_id and plan_time straight from the edit screen and writes them
- * back, so merely opening a trial listing in wp-admin and clicking Update
- * silently reverted it to whatever plan the form had selected — and re-added
- * 'lp_purchase_days' along with it.
+ * ListingPro's own save_post handlers read Plan_id, plan_time and the other
+ * metabox fields straight from the edit screen and write them back, so merely
+ * opening a trial listing in wp-admin and clicking Update silently reverted it
+ * to whatever plan the form had selected — and re-added 'lp_purchase_days'
+ * along with it. Both the free-submit path and admin approval publish run
+ * through here.
  *
- * This runs at priority 99, after that handler, and the two hooks fire in
- * the order save_post -> save_post_{post_type}, so it also runs after the
- * save_post handlers regardless of their priority.
+ * Hook choice matters. WordPress fires save_post_{$post_type} *before*
+ * save_post (wp-includes/post.php, wp_insert_post), and ListingPro's
+ * Plan_id writer (listingpro_update_features_in_list) is on plain save_post.
+ * So hooking save_post_listing — even at priority 99 — would run *before*
+ * the very handler it is meant to correct. Hook plain save_post at priority
+ * 99 instead, which puts this after ListingPro's writers at priority 10.
  *
  * @param int     $post_id
  * @param WP_Post $post
  * @param bool    $update
  */
 function ip_trial_reassert_on_save( $post_id, $post, $update ) {
+	if ( ! $post || 'listing' !== $post->post_type ) {
+		return;
+	}
+
 	if ( wp_is_post_revision( $post_id ) || wp_is_post_autosave( $post_id ) ) {
 		return;
 	}
@@ -450,7 +458,13 @@ function ip_trial_send_email( $listing_id, $type, $days_remaining = 0 ) {
 	$site_name     = get_bloginfo( 'name' );
 	$listing_title = get_the_title( $listing_id );
 	$listing_url   = get_permalink( $listing_id );
-	$dashboard_url = home_url( '/dashboard/' ); // Adjust if the instructor dashboard lives at a different slug.
+
+	// Resolve the dashboard the same way ListingPro's own templates do, so the
+	// link keeps working if the slug changes or the site moves.
+	$dashboard_url = function_exists( 'listingpro_url' ) ? listingpro_url( 'listing-author' ) : '';
+	if ( empty( $dashboard_url ) ) {
+		$dashboard_url = home_url( '/' );
+	}
 
 	switch ( $type ) {
 		case 'start':
