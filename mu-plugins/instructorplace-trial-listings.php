@@ -5,8 +5,9 @@
  * trial (if they submit without paying), shows a countdown badge, emails
  * them at trial start and 3 days before expiry, and downgrades to the Free
  * plan when the trial ends. That Free listing then runs for another 30
- * days before it expires the same way any ListingPro listing expires.
- * Version: 1.1.0
+ * days before it expires the same way any ListingPro listing expires. The
+ * admin "Expire After" column shows the real countdown for both phases.
+ * Version: 1.2.0
  *
  * DESIGN NOTES — read before changing anything
  * ---------------------------------------------
@@ -201,6 +202,42 @@ function ip_trial_apply_plan( $listing_id, $plan_id ) {
 }
 
 /**
+ * Days left in the Premium trial itself (Phase 1), or null if the listing
+ * was never granted one. Single source of truth shared by the badge, the
+ * cron, and the admin "Expire After" column override, so the three can
+ * never drift out of sync with each other.
+ *
+ * @param int $listing_id
+ * @return int|null
+ */
+function ip_trial_days_remaining_in_trial( $listing_id ) {
+	$start = (int) get_post_meta( $listing_id, '_ip_trial_start', true );
+	if ( ! $start ) {
+		return null;
+	}
+	$now          = current_time( 'timestamp' ); // phpcs:ignore WordPress.DateTime.CurrentTimeTimestamp
+	$days_elapsed = floor( ( $now - $start ) / DAY_IN_SECONDS );
+	return max( 0, IP_TRIAL_DAYS - $days_elapsed );
+}
+
+/**
+ * Days left in the Free grace period (Phase 2), or null if this listing
+ * hasn't downgraded from a trial. Same sharing rationale as above.
+ *
+ * @param int $listing_id
+ * @return int|null
+ */
+function ip_trial_days_remaining_in_free_grace( $listing_id ) {
+	$ended = (int) get_post_meta( $listing_id, '_ip_trial_ended', true );
+	if ( ! $ended ) {
+		return null;
+	}
+	$now          = current_time( 'timestamp' ); // phpcs:ignore WordPress.DateTime.CurrentTimeTimestamp
+	$days_elapsed = floor( ( $now - $ended ) / DAY_IN_SECONDS );
+	return max( 0, IP_TRIAL_FREE_GRACE_DAYS - $days_elapsed );
+}
+
+/**
  * Remove 'lp_purchase_days' from a listing's nested options array.
  *
  * ListingPro's submit handler writes this for every listing it creates,
@@ -389,16 +426,11 @@ function ip_trial_run_daily_check() {
 		return;
 	}
 
-	$now = current_time( 'timestamp' ); // phpcs:ignore WordPress.DateTime.CurrentTimeTimestamp
-
 	foreach ( $trials as $listing_id ) {
-		$start = (int) get_post_meta( $listing_id, '_ip_trial_start', true );
-		if ( ! $start ) {
+		$days_remaining = ip_trial_days_remaining_in_trial( $listing_id );
+		if ( null === $days_remaining ) {
 			continue;
 		}
-
-		$days_elapsed   = floor( ( $now - $start ) / DAY_IN_SECONDS );
-		$days_remaining = IP_TRIAL_DAYS - $days_elapsed;
 
 		if ( $days_remaining <= 0 ) {
 			ip_trial_downgrade( $listing_id );
@@ -456,16 +488,11 @@ function ip_trial_run_free_expiry_check() {
 		return;
 	}
 
-	$now = current_time( 'timestamp' ); // phpcs:ignore WordPress.DateTime.CurrentTimeTimestamp
-
 	foreach ( $downgraded as $listing_id ) {
-		$ended = (int) get_post_meta( $listing_id, '_ip_trial_ended', true );
-		if ( ! $ended ) {
+		$days_remaining = ip_trial_days_remaining_in_free_grace( $listing_id );
+		if ( null === $days_remaining ) {
 			continue;
 		}
-
-		$days_elapsed   = floor( ( $now - $ended ) / DAY_IN_SECONDS );
-		$days_remaining = IP_TRIAL_FREE_GRACE_DAYS - $days_elapsed;
 
 		if ( $days_remaining <= 0 ) {
 			ip_trial_expire_free_listing( $listing_id );
@@ -585,16 +612,8 @@ function ip_trial_badge_html( $listing_id ) {
 		return '';
 	}
 
-	$start = (int) get_post_meta( $listing_id, '_ip_trial_start', true );
-	if ( ! $start ) {
-		return '';
-	}
-
-	$now            = current_time( 'timestamp' ); // phpcs:ignore WordPress.DateTime.CurrentTimeTimestamp
-	$days_elapsed   = floor( ( $now - $start ) / DAY_IN_SECONDS );
-	$days_remaining = max( 0, IP_TRIAL_DAYS - $days_elapsed );
-
-	if ( $days_remaining <= 0 ) {
+	$days_remaining = ip_trial_days_remaining_in_trial( $listing_id );
+	if ( null === $days_remaining || $days_remaining <= 0 ) {
 		return ''; // Cron hasn't run yet today but the trial's effectively over — don't show a stale badge.
 	}
 
@@ -696,4 +715,87 @@ function ip_trial_send_email( $listing_id, $type, $days_remaining = 0 ) {
 	}
 
 	wp_mail( $user->user_email, $subject, $body );
+}
+
+/* =====================================================================
+ * 9. ADMIN "EXPIRE AFTER" COLUMN — show the real countdown, not "Unlimited"
+ * ===================================================================== */
+
+/**
+ * ListingPro's own admin list column (plugin/functions.php,
+ * listingpro_columns_content(), column 'expires') reads the nested
+ * 'lp_purchase_days' meta to calculate its countdown, and prints
+ * "Unlimited Days Left" whenever that key is absent. This plugin
+ * deliberately deletes that key on every trial-related listing (see
+ * ip_trial_purge_purchase_days()) so ListingPro's own expiry cron never
+ * unpublishes it — the side effect is that this admin column always shows
+ * "Unlimited" for any listing this plugin manages, even though a real
+ * countdown is running.
+ *
+ * Fixed here by wrapping ListingPro's own column output in an output
+ * buffer and substituting an accurate value for trial-related listings
+ * only. Every other listing's cell — including real paid ones — passes
+ * through completely untouched, byte for byte, because the override
+ * function below returns null for anything that isn't trial-related, and
+ * a null result means "print what ListingPro would have printed".
+ *
+ * Two hooks on the same action, not a filter, because
+ * manage_listing_posts_custom_column is action-based: ListingPro's
+ * handler echoes directly rather than returning a value, so there's
+ * nothing to filter. Priority 5 opens the buffer before ListingPro's own
+ * handler runs at its default priority 10; priority 20 closes it after.
+ */
+add_action( 'manage_listing_posts_custom_column', 'ip_trial_expires_column_buffer_open', 5, 2 );
+function ip_trial_expires_column_buffer_open( $column_name, $post_id ) {
+	if ( 'expires' === $column_name ) {
+		ob_start();
+	}
+}
+
+add_action( 'manage_listing_posts_custom_column', 'ip_trial_expires_column_buffer_close', 20, 2 );
+function ip_trial_expires_column_buffer_close( $column_name, $post_id ) {
+	if ( 'expires' !== $column_name ) {
+		return;
+	}
+
+	$listingpro_output = ob_get_clean();
+
+	$override = ip_trial_expires_column_override( $post_id );
+	if ( null === $override ) {
+		echo $listingpro_output; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- passthrough of ListingPro's own already-escaped output, unchanged.
+		return;
+	}
+
+	echo $override; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- built and escaped in ip_trial_expires_column_override().
+}
+
+/**
+ * The replacement text for a trial-related listing's "Expire After" cell,
+ * or null to leave ListingPro's own output alone.
+ *
+ * @param int $post_id
+ * @return string|null
+ */
+function ip_trial_expires_column_override( $post_id ) {
+	if ( 'yes' === get_post_meta( $post_id, '_ip_trial_active', true ) ) {
+		$days = ip_trial_days_remaining_in_trial( $post_id );
+		if ( null === $days ) {
+			return null;
+		}
+		return esc_html( $days ) . esc_html__( ' Days Left (Premium Trial)', 'listingpro-plugin' );
+	}
+
+	// Downgraded to Free and still live — Phase 2's own countdown.
+	if ( get_post_meta( $post_id, '_ip_trial_ended', true ) && 'publish' === get_post_status( $post_id ) ) {
+		$days = ip_trial_days_remaining_in_free_grace( $post_id );
+		if ( null === $days ) {
+			return null;
+		}
+		return esc_html( $days ) . esc_html__( ' Days Left (Free Listing)', 'listingpro-plugin' );
+	}
+
+	// Not a trial-related listing, or already expired — let ListingPro's own
+	// output stand (blank for expired, matching how it treats any other
+	// expired listing).
+	return null;
 }
