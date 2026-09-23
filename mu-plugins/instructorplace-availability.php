@@ -5,7 +5,7 @@
  * from their dashboard, shows it as a badge on their listing card and
  * profile, disables the contact form and booking widget when Red, and
  * auto-downgrades a stale (30+ day untouched) status to Amber.
- * Version: 1.0.0
+ * Version: 1.1.0
  *
  * DESIGN NOTES — read before changing anything
  * ---------------------------------------------
@@ -17,23 +17,26 @@
  * listing that has never been set at all (there's no honest "last updated"
  * date to measure staleness against) — see ip_availability_run_daily_check().
  *
- * STALENESS APPLIES TO ALL THREE STATUSES, RED INCLUDED: 30 days with no
- * update forces a listing to Amber regardless of what it was set to,
- * including Red. Rationale: a stale Red is just as likely to be wrong as a
- * stale Green — the instructor may have become available again and simply
- * never came back to update it. Amber ("Limited / uncertain, ask") is a
- * more honest signal than continuing to show a Red that's a month old. If
- * the client wants Red to be "sticky" (never auto-decay), change the
- * $current_status check in ip_availability_run_daily_check().
+ * STALENESS APPLIES TO GREEN ONLY: 30 days with no update forces a Green
+ * listing to Amber — it never touches an Amber (nothing further to decay)
+ * or a deliberately-set Red. A stale Green is an unverified "yes, still
+ * available" claim, worth walking back to "unconfirmed". A stale Red is a
+ * deliberate "not available" the instructor chose; staleness shouldn't
+ * quietly override that, since the failure mode of leaving it Red too long
+ * (a learner skips someone who's actually free again) is far less costly
+ * than the failure mode of un-reddening it automatically (a learner
+ * contacts someone who's actually still unavailable).
  *
- * TIMESTAMP HANDLING ON AUTO-DECAY: when the cron forces a stale status to
+ * TIMESTAMP HANDLING ON AUTO-DECAY: when the cron forces a stale Green to
  * Amber, it does NOT reset '_ip_availability_updated' to now — that
  * timestamp is meant to record the last time the INSTRUCTOR actually
- * touched this, not the last time the cron touched it. The
- * '_ip_availability_auto_amber' flag is what the cron sets instead, and is
- * what stops it from re-processing the same listing every day forever
- * (see the early-continue in the loop). Any manual change by the
- * instructor clears that flag and resets the real timestamp.
+ * touched this, not the last time the cron touched it. Re-processing the
+ * same listing every day forever is already prevented on its own once the
+ * status is no longer Green (see the loop's own status check) —
+ * '_ip_availability_auto_amber' isn't needed for that, but is still
+ * recorded as a bookkeeping flag distinguishing an auto-decayed Amber from
+ * one the instructor chose themselves. Any manual change by the instructor
+ * clears that flag and resets the real timestamp.
  *
  * HARD BLOCK ON RED: disables (not hides) the contact form's submit button
  * and the booking widget's controls, with an inline message explaining why.
@@ -240,11 +243,12 @@ function ip_availability_run_daily_check() {
 			continue;
 		}
 
-		// Already auto-decayed and nothing's changed since — nothing to do.
-		// Without this guard the cron would rewrite the same meta every
-		// single day forever once a listing crosses 30 days stale.
-		$current_status = ip_availability_get_status( $listing_id );
-		if ( 'amber' === $current_status && 'yes' === get_post_meta( $listing_id, IP_AVAIL_META_AUTO, true ) ) {
+		// Staleness only walks back an optimistic Green — it never touches
+		// Amber (nothing to decay further) or Red (a deliberate "not
+		// available" isn't something staleness should override; leaving it
+		// stale is safer than quietly making a learner think a red listing
+		// is now open again).
+		if ( 'green' !== ip_availability_get_status( $listing_id ) ) {
 			continue;
 		}
 
@@ -295,33 +299,53 @@ function ip_availability_badge_shortcode( $atts ) {
  * @param int $listing_id
  * @return string
  */
+/**
+ * Matches the existing dropdown's own visual language (icon + text list
+ * items, same as the Edit/Remove/Change Plan rows already in that menu)
+ * rather than a cramped horizontal button row — the dropdown's width is
+ * sized for short text links, and three side-by-side buttons clipped
+ * against that width in the first version of this.
+ *
+ * @param int $listing_id
+ * @return string
+ */
 function ip_availability_dashboard_controls_html( $listing_id ) {
 	$current = ip_availability_get_status( $listing_id );
 	$options = array(
-		'green' => esc_html__( 'Available', 'listingpro' ),
-		'amber' => esc_html__( 'Limited', 'listingpro' ),
-		'red'   => esc_html__( 'Unavailable', 'listingpro' ),
+		'green' => array(
+			'label' => esc_html__( 'Set Available', 'listingpro' ),
+			'color' => ip_availability_color( 'green' ),
+		),
+		'amber' => array(
+			'label' => esc_html__( 'Set Limited Slots', 'listingpro' ),
+			'color' => ip_availability_color( 'amber' ),
+		),
+		'red'   => array(
+			'label' => esc_html__( 'Set Not Available', 'listingpro' ),
+			'color' => ip_availability_color( 'red' ),
+		),
 	);
 
-	$html = '<li class="ip-availability-dashboard-control"><div style="display:flex;gap:4px;padding:6px 12px;">';
-	foreach ( $options as $status => $label ) {
-		$is_active = ( $status === $current );
-		$color     = ip_availability_color( $status );
-		$bg        = $is_active ? ip_availability_bg( $status ) : 'transparent';
-		$border    = $is_active ? $color : '#cccccc';
-		$text      = $is_active ? $color : '#666666';
+	$html  = '<li class="ip-availability-dashboard-heading" style="border-top:1px solid #eee;margin-top:6px;padding-top:6px;">';
+	$html .= '<span style="display:block;padding:4px 12px 2px;font-size:10px;letter-spacing:0.05em;text-transform:uppercase;color:#999999;font-weight:700;">' . esc_html__( 'Availability', 'listingpro' ) . '</span>';
+	$html .= '</li>';
+
+	foreach ( $options as $status => $opt ) {
+		$is_active   = ( $status === $current );
+		$active_attr = $is_active ? ' aria-current="true"' : '';
+		$label_html  = $is_active ? '<strong>' . $opt['label'] . '</strong>' : $opt['label'];
+		$check_icon  = $is_active ? ' <i class="fa fa-check" aria-hidden="true"></i>' : '';
 
 		$html .= sprintf(
-			'<button type="button" class="ip-availability-btn" data-listing-id="%1$d" data-status="%2$s" style="flex:1;padding:4px 6px;font-size:11px;font-weight:600;border-radius:4px;border:1px solid %3$s;background:%4$s;color:%5$s;cursor:pointer;">%6$s</button>',
+			'<li><a href="#" class="ip-availability-btn" data-listing-id="%1$d" data-status="%2$s"%3$s><i class="fa fa-circle" aria-hidden="true" style="color:%4$s;"></i><span>%5$s</span>%6$s</a></li>',
 			(int) $listing_id,
 			esc_attr( $status ),
-			esc_attr( $border ),
-			esc_attr( $bg ),
-			esc_attr( $text ),
-			esc_html( $label )
+			$active_attr,
+			esc_attr( $opt['color'] ),
+			$label_html,
+			$check_icon
 		);
 	}
-	$html .= '</div></li>';
 
 	return $html;
 }

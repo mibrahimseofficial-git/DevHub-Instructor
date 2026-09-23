@@ -32,11 +32,15 @@ status to Amber.
   not a blank/missing badge. The 30-day staleness cron leaves it alone
   until the instructor sets something for the first time — there's no
   honest "last updated" date to measure staleness against before that.
-- **Staleness applies to Red too:** 30 days with no update forces Amber
-  regardless of what it was set to, Red included. A month-old Red is just
-  as likely to be wrong as a month-old Green. If you want Red to be
-  "sticky" (never auto-decay), tell me and I'll change one line in
-  `ip_availability_run_daily_check()`.
+- **Staleness only decays Green:** 30 days with no update forces a stale
+  Green to Amber. It never touches Amber (nothing further to decay) or a
+  deliberately-set Red — a stale Red is a real choice the instructor made,
+  and staleness shouldn't quietly override it.
+- **Dashboard control:** styled as list items matching the dropdown's own
+  existing Edit/Remove/Change Plan rows (colored circle icon + label, the
+  active one bold with a checkmark) rather than a row of buttons — the
+  dropdown's width is sized for short text links, and three side-by-side
+  buttons clipped against that width in the first version of this.
 - **Hard block on Red:** disables the contact form's Send button and the
   booking widget's controls via JS, with an inline explanation. Targets
   both booking mechanisms this codebase has (`.classic-booking-appointment`
@@ -68,14 +72,16 @@ status to Amber.
 5. **Green/Amber allow contact:** switch back to Green or Amber, reload,
    confirm the form and booking widget work normally again — nothing
    should stay disabled once it's off Red.
-6. **30-day staleness:** in phpMyAdmin, set that listing's
-   `_ip_availability_updated` meta value to 31 days ago:
+6. **30-day staleness:** set a test listing to Green first. In
+   phpMyAdmin, set that listing's `_ip_availability_updated` meta value to
+   31 days ago:
    ```sql
    UPDATE RyK_postmeta SET meta_value = UNIX_TIMESTAMP() - (31*86400)
    WHERE post_id = <listing_id> AND meta_key = '_ip_availability_updated';
    ```
    Trigger the cron manually (WP Crontrol → `ip_availability_daily_check`
    → Run Now — same tool used for the trial system's testing). Confirm
-   the status flips to Amber regardless of what it was set to beforehand,
-   and running the cron again the same day doesn't do anything further
-   (check `_ip_availability_auto_amber` meta is `yes`).
+   the status flips to Amber. Then repeat the same backdating on a
+   different test listing that's set to **Red** instead, run the cron
+   again, and confirm that one does **not** change — Red stays Red
+   regardless of staleness.
