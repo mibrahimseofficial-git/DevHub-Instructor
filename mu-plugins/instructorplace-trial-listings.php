@@ -6,8 +6,10 @@
  * them at trial start and 3 days before expiry, and downgrades to the Free
  * plan when the trial ends. That Free listing then runs for another 30
  * days before it expires the same way any ListingPro listing expires. The
- * admin "Expire After" column shows the real countdown for both phases.
- * Version: 1.2.0
+ * real countdown shows in the admin "Expire After" column and the
+ * front-end dashboard (via a small child-theme template override —
+ * see child-theme/templates/dashboard/listings.php in this repo).
+ * Version: 1.3.0
  *
  * DESIGN NOTES — read before changing anything
  * ---------------------------------------------
@@ -798,4 +800,56 @@ function ip_trial_expires_column_override( $post_id ) {
 	// output stand (blank for expired, matching how it treats any other
 	// expired listing).
 	return null;
+}
+
+/* =====================================================================
+ * 10. FRONT-END DASHBOARD "EXPIRE AFTER" — same fix, different rendering path
+ * ===================================================================== */
+
+/**
+ * The front-end dashboard's own "My Listings" template
+ * (theme/listingpro/templates/dashboard/listings.php) has the exact same
+ * root cause as the admin column above — it computes its own $expiry
+ * variable from 'lp_purchase_days' and defaults to 'Unlimited' when that
+ * key is empty, which is always true for a trial-related listing since
+ * ip_trial_purge_purchase_days() deletes it on purpose.
+ *
+ * Unlike the admin column, this is plain procedural template code with no
+ * action or filter to hook — get_template_part() either finds a file or it
+ * doesn't, there's nothing in between to intercept. So the fix lives in a
+ * child theme override instead: an exact copy of that template
+ * (wp-content/themes/listingpro-child/templates/dashboard/listings.php,
+ * which WordPress's own template hierarchy already prefers over the
+ * parent's copy) with one line added after each of its four
+ * "if (!empty($plan_id))" blocks:
+ *
+ *     $expiry = ip_trial_dashboard_expiry_override( $expiry, $postID );
+ *
+ * That's the only change in the child copy — everything else is untouched,
+ * so a future diff against the parent theme's own updates to this file
+ * stays a four-line diff. This function is what that line calls.
+ *
+ * @param string $listingpro_value ListingPro's own computed $expiry string.
+ * @param int    $listing_id
+ * @return string
+ */
+function ip_trial_dashboard_expiry_override( $listingpro_value, $listing_id ) {
+	if ( 'yes' === get_post_meta( $listing_id, '_ip_trial_active', true ) ) {
+		$days = ip_trial_days_remaining_in_trial( $listing_id );
+		if ( null !== $days ) {
+			/* translators: %d: number of days remaining in the free trial. */
+			return sprintf( esc_html__( '%d Days (Premium Trial)', 'listingpro' ), $days );
+		}
+	}
+
+	if ( get_post_meta( $listing_id, '_ip_trial_ended', true ) && 'publish' === get_post_status( $listing_id ) ) {
+		$days = ip_trial_days_remaining_in_free_grace( $listing_id );
+		if ( null !== $days ) {
+			/* translators: %d: number of days remaining on the free listing. */
+			return sprintf( esc_html__( '%d Days (Free Listing)', 'listingpro' ), $days );
+		}
+	}
+
+	// Not a trial-related listing — leave ListingPro's own value exactly as it was.
+	return $listingpro_value;
 }
