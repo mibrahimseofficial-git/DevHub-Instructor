@@ -3,9 +3,10 @@
  * Plugin Name: Instructor Place — Trial Listings System
  * Description: Gives a new instructor's first listing a free 30-day Premium
  * trial (if they submit without paying), shows a countdown badge, emails
- * them at trial start and 3 days before expiry, and auto-downgrades to the
- * Free plan when the trial ends.
- * Version: 1.0.0
+ * them at trial start and 3 days before expiry, and downgrades to the Free
+ * plan when the trial ends. That Free listing then runs for another 30
+ * days before it expires the same way any ListingPro listing expires.
+ * Version: 1.1.0
  *
  * DESIGN NOTES — read before changing anything
  * ---------------------------------------------
@@ -87,6 +88,25 @@
  * ip_trial_badge_html() and the [ip_trial_badge] shortcode return the
  * markup. The badge is NOT injected automatically — place the shortcode in
  * the single-listing template or an Elementor Shortcode widget.
+ *
+ * PHASE 2 — THE FREE LISTING ALSO EXPIRES
+ * -----------------------------------------
+ * The downgrade to Free isn't the end of the lifecycle. That Free listing
+ * lives for IP_TRIAL_FREE_GRACE_DAYS more days (a reminder email
+ * IP_TRIAL_FREE_REMINDER_DAYS_BEFORE days out), then expires — exactly the
+ * way any other ListingPro listing expires: post_status becomes the
+ * theme's own custom 'expired' status (registered in
+ * plugin/listingpro-plugin/inc/register_new_status.php). Every ListingPro
+ * search/archive query already filters on post_status = 'publish', so
+ * setting this one status is enough to drop it out of search — no separate
+ * visibility flag needed, and it plugs into whatever admin UI (status
+ * filter, "Expired" label) ListingPro already has for that status.
+ *
+ * Scoped to trial-descended listings only, via the '_ip_trial_ended' meta
+ * key — the only thing that ever writes it is ip_trial_downgrade() above,
+ * so a listing that was always Free/Standard/Premium, or a Free listing
+ * that never went through a trial, has no such meta and this never touches
+ * it. See ip_trial_run_free_expiry_check() and ip_trial_expire_free_listing().
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -96,6 +116,8 @@ if ( ! defined( 'ABSPATH' ) ) {
 define( 'IP_TRIAL_DAYS', 30 );
 define( 'IP_TRIAL_REMINDER_DAYS_BEFORE', 3 ); // Send the "ending soon" email this many days before expiry.
 define( 'IP_TRIAL_USER_META', '_ip_trial_used' ); // User meta: set once the user has ever been granted a trial.
+define( 'IP_TRIAL_FREE_GRACE_DAYS', 30 ); // How long a downgraded Free listing stays live before it expires (Phase 2).
+define( 'IP_TRIAL_FREE_REMINDER_DAYS_BEFORE', 3 ); // Send the "listing expiring soon" email this many days before that.
 
 /* =====================================================================
  * 1. PLAN RESOLUTION — dynamic, cached per-request
@@ -348,6 +370,7 @@ function ip_trial_schedule_cron() {
 }
 
 add_action( 'ip_trial_daily_check', 'ip_trial_run_daily_check' );
+add_action( 'ip_trial_daily_check', 'ip_trial_run_free_expiry_check' );
 function ip_trial_run_daily_check() {
 	$trials = get_posts( array(
 		'post_type'      => 'listing',
@@ -408,6 +431,75 @@ function ip_trial_downgrade( $listing_id ) {
 	ip_trial_send_email( $listing_id, 'ended' );
 }
 
+/**
+ * Phase 2: the Free listing a trial downgraded to has its own
+ * IP_TRIAL_FREE_GRACE_DAYS lifespan. Runs on the same daily cron as the
+ * trial check above. Scoped entirely by '_ip_trial_ended' existing — the
+ * only writer of that key is ip_trial_downgrade(), so this can never touch
+ * a listing that didn't come through a trial.
+ */
+function ip_trial_run_free_expiry_check() {
+	$downgraded = get_posts( array(
+		'post_type'      => 'listing',
+		'post_status'    => 'publish', // Already-expired listings aren't 'publish' any more, so this naturally excludes them too.
+		'posts_per_page' => -1,
+		'fields'         => 'ids',
+		'meta_query'     => array(
+			array(
+				'key'     => '_ip_trial_ended',
+				'compare' => 'EXISTS',
+			),
+		),
+	) );
+
+	if ( empty( $downgraded ) ) {
+		return;
+	}
+
+	$now = current_time( 'timestamp' ); // phpcs:ignore WordPress.DateTime.CurrentTimeTimestamp
+
+	foreach ( $downgraded as $listing_id ) {
+		$ended = (int) get_post_meta( $listing_id, '_ip_trial_ended', true );
+		if ( ! $ended ) {
+			continue;
+		}
+
+		$days_elapsed   = floor( ( $now - $ended ) / DAY_IN_SECONDS );
+		$days_remaining = IP_TRIAL_FREE_GRACE_DAYS - $days_elapsed;
+
+		if ( $days_remaining <= 0 ) {
+			ip_trial_expire_free_listing( $listing_id );
+			continue;
+		}
+
+		$reminder_sent = get_post_meta( $listing_id, '_ip_trial_free_reminder_sent', true );
+		if ( 'yes' !== $reminder_sent && $days_remaining <= IP_TRIAL_FREE_REMINDER_DAYS_BEFORE ) {
+			ip_trial_send_email( $listing_id, 'free_reminder', $days_remaining );
+			update_post_meta( $listing_id, '_ip_trial_free_reminder_sent', 'yes' );
+		}
+	}
+}
+
+/**
+ * Expire a downgraded-to-Free listing the same way ListingPro expires any
+ * listing: post_status -> its own custom 'expired' status. Every
+ * ListingPro search/archive query filters on post_status = 'publish', so
+ * this alone drops it out of search — no separate visibility flag, and it
+ * plugs into whatever admin UI ListingPro already has for that status.
+ *
+ * @param int $listing_id
+ */
+function ip_trial_expire_free_listing( $listing_id ) {
+	wp_update_post( array(
+		'ID'          => $listing_id,
+		'post_status' => 'expired',
+	) );
+
+	update_post_meta( $listing_id, '_ip_trial_free_expired', current_time( 'timestamp' ) ); // phpcs:ignore WordPress.DateTime.CurrentTimeTimestamp
+
+	ip_trial_send_email( $listing_id, 'free_expired' );
+}
+
 /* =====================================================================
  * 6. RE-ASSERT ON SAVE — stop ListingPro's metabox save reverting a trial
  * ===================================================================== */
@@ -465,7 +557,9 @@ function ip_trial_reassert_on_save( $post_id, $post, $update ) {
 		return;
 	}
 
-	if ( 'yes' === get_post_meta( $post_id, '_ip_trial_ended', true ) ) {
+	// '_ip_trial_ended' is a timestamp (set by ip_trial_downgrade()), never
+	// the string 'yes' — check for presence, not a specific value.
+	if ( get_post_meta( $post_id, '_ip_trial_ended', true ) ) {
 		// Trial finished: it must stay on Free, and must stay out of the expiry cron.
 		ip_trial_purge_purchase_days( $post_id );
 	}
@@ -576,6 +670,24 @@ function ip_trial_send_email( $listing_id, $type, $days_remaining = 0 ) {
 				. "<p>Your free Premium trial for <strong>{$listing_title}</strong> has ended, and your listing is now on the free Basic plan. Your listing is still live and searchable.</p>"
 				. "<p>You can upgrade to Premium or Standard at any time from your <a href=\"{$dashboard_url}\">dashboard</a> to restore top placement and full profile features.</p>"
 				. "<p><a href=\"{$listing_url}\">View your listing</a></p>"
+				. "<p>Thanks,<br>{$site_name}</p>";
+			break;
+
+		case 'free_reminder':
+			$day_word = ( 1 === (int) $days_remaining ) ? 'day' : 'days';
+			$subject  = sprintf( '[%s] Your free listing expires in %d %s', $site_name, $days_remaining, $day_word );
+			$body     = "<p>Hi {$user->display_name},</p>"
+				. "<p>Your listing <strong>{$listing_title}</strong> is currently live on our free Basic plan, and that listing period ends in <strong>{$days_remaining} {$day_word}</strong>.</p>"
+				. "<p>After that, your listing will stop appearing in search until you renew or upgrade it from your <a href=\"{$dashboard_url}\">dashboard</a>.</p>"
+				. "<p><a href=\"{$listing_url}\">View your listing</a></p>"
+				. "<p>Thanks,<br>{$site_name}</p>";
+			break;
+
+		case 'free_expired':
+			$subject = sprintf( '[%s] Your listing has expired', $site_name );
+			$body    = "<p>Hi {$user->display_name},</p>"
+				. "<p>Your listing <strong>{$listing_title}</strong> has expired and is no longer visible in search results.</p>"
+				. "<p>You can renew or upgrade it any time from your <a href=\"{$dashboard_url}\">dashboard</a>.</p>"
 				. "<p>Thanks,<br>{$site_name}</p>";
 			break;
 
