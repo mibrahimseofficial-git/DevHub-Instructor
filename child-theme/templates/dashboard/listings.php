@@ -251,6 +251,7 @@
                                                                 echo listingpro_change_plan_button($post, get_the_ID());
                                                                 ?>
                                                             </li>
+                                                        <?php echo ip_availability_dashboard_controls_html( $postID ); ?>
                                                         </ul>
                                                     </div>
                                                 </div>
@@ -436,6 +437,7 @@
                                                                 echo listingpro_change_plan_button($post, get_the_ID());
                                                                 ?>
                                                             </li>
+                                                        <?php echo ip_availability_dashboard_controls_html( $postID ); ?>
                                                         </ul>
                                                     </div>
                                                 </div>
@@ -625,6 +627,7 @@
                                                                 echo listingpro_change_plan_button($post, get_the_ID());
                                                                 ?>
                                                             </li>
+                                                        <?php echo ip_availability_dashboard_controls_html( $postID ); ?>
                                                         </ul>
                                                     </div>
                                                 </div>
@@ -800,6 +803,7 @@
                                                                 echo listingpro_change_plan_button($post, get_the_ID());
                                                                 ?>
                                                             </li>
+                                                        <?php echo ip_availability_dashboard_controls_html( $postID ); ?>
                                                         </ul>
                                                     </div>
                                                 </div>
