@@ -5,7 +5,7 @@
  * from their dashboard, shows it as a badge on their listing card and
  * profile, disables the contact form and booking widget when Red, and
  * auto-downgrades a stale (30+ day untouched) status to Amber.
- * Version: 1.1.0
+ * Version: 1.2.0
  *
  * DESIGN NOTES — read before changing anything
  * ---------------------------------------------
@@ -467,3 +467,77 @@ function ip_availability_enqueue_block_js() {
 		})(jQuery);
 	" );
 }
+
+/* =====================================================================
+ * 7. ELEMENTOR LOOP GRID SHORTCODE — [listing_availability]
+ * ===================================================================== */
+
+/**
+ * A separate shortcode from [ip_availability_badge] above, deliberately.
+ * That one matches the light-background admin/dashboard badge style used
+ * on the classic single-listing template and admin column. This one
+ * matches the solid-color pill style of the site's own existing
+ * 'listing_status' shortcode (Open Now / Closed Now, added independently
+ * of this plugin) — same markup shape, same font, same spacing token
+ * (var(--kit-widget-spacing)) — so the two sit naturally side by side on
+ * an Elementor Loop Grid card. Drop [listing_availability] into a
+ * Shortcode widget in that Loop Grid item template, wherever it should
+ * appear (e.g. next to the listing_status badge).
+ */
+add_shortcode( 'listing_availability', function ( $atts ) {
+	$atts = shortcode_atts( array(
+		'id' => get_the_ID(),
+	), $atts );
+
+	$post_id = absint( $atts['id'] );
+	if ( ! $post_id ) {
+		return '';
+	}
+
+	$status = ip_availability_get_status( $post_id );
+	$label  = ip_availability_label( $status );
+	$color  = ip_availability_color( $status );
+
+	return
+		'<span class="listing-availability listing-availability-' . esc_attr( $status ) . '"
+			style="
+				display:inline-flex;
+				align-items:center;
+				gap:6px;
+				background-color:' . esc_attr( $color ) . ';
+				margin:0 0 calc(var(--kit-widget-spacing, 0px) + 0px) 0;
+				padding:7px 12px;
+				z-index:1;
+				border-radius:100px;
+				font-family:\'Open Sans\', sans-serif;
+				font-style:normal;
+				font-weight:400;
+				font-size:12px;
+				line-height:16px;
+				color:#FFFFFF;
+			">
+			<span
+				class="listing-availability-dot"
+				style="
+					display:inline-block;
+					width:7px;
+					height:7px;
+					min-width:7px;
+					border-radius:50%;
+					background-color:#FFFFFF;
+				">
+			</span>
+			<span
+				class="listing-availability-label"
+				style="
+					color:#FFFFFF;
+					font-family:\'Open Sans\', sans-serif;
+					font-style:normal;
+					font-weight:400;
+					font-size:12px;
+					line-height:16px;
+				">
+				' . esc_html( $label ) . '
+			</span>
+		</span>';
+} );
