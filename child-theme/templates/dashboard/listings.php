@@ -92,9 +92,10 @@
 					<div class="col-md-1 padding-0 "><p><?php esc_html_e('views','listingpro'); ?></p></div>
                     <div class="col-md-2 padding-0 "><p><?php esc_html_e('Published','listingpro'); ?></p></div>
                     <div class="col-md-1 padding-0  "><p><?php esc_html_e('expiry','listingpro'); ?></p></div>
-                    <div class="col-md-2 padding-0  text-center"><p><?php esc_html_e('Associated Plan','listingpro'); ?></p></div>
+                    <div class="col-md-1 padding-0  text-center"><p><?php esc_html_e('Associated Plan','listingpro'); ?></p></div>
 					
-                    <div class="col-md-3 padding-0  text-center "><p><?php esc_html_e('status','listingpro'); ?></p></div>
+                    <div class="col-md-2 padding-0  text-center"><p><?php esc_html_e('Availability','listingpro'); ?></p></div>
+                    <div class="col-md-2 padding-0  text-center "><p><?php esc_html_e('status','listingpro'); ?></p></div>
                 </div>
                 <div class="tab-content clearfix">
                     <div class="tab-pane fade in active" id="tab1default">
@@ -225,7 +226,7 @@
                                         </div>
                                     </div>
 									
-                                    <div class="col-md-2 padding-0 lp-content-before-after text-center" data-content="<?php esc_html_e('Associated Plan','listingpro'); ?>">
+                                    <div class="col-md-1 padding-0 lp-content-before-after text-center" data-content="<?php esc_html_e('Associated Plan','listingpro'); ?>">
                                         <?php
                                         $plan_name = esc_html__('N/A', 'listingpro');
                                         $plan_id = listing_get_metabox_by_ID('Plan_id', $postID);
@@ -235,7 +236,10 @@
                                         echo esc_attr($plan_name);
                                         ?>
                                     </div>
-                                    <div class="col-md-3 lp-content-before-after padding-0" data-content="<?php esc_html_e('Status','listingpro'); ?>">
+                                    <div class="col-md-2 padding-0 lp-content-before-after text-center" data-content="<?php esc_html_e('Availability','listingpro'); ?>">
+                                        <?php echo ip_availability_badge_html( $postID ); ?>
+                                    </div>
+                                    <div class="col-md-2 lp-content-before-after padding-0" data-content="<?php esc_html_e('Status','listingpro'); ?>">
                                         <div class="pull-right">
                                             <div class="clearfix">
                                                 <div class="pull-right">
@@ -409,7 +413,7 @@
                                             <p><?php echo esc_attr($expiry); ?></p>
                                         </div>
                                     </div>
-                                    <div class="col-md-2 padding-0 text-center lp-content-before-after" data-content="<?php esc_html_e('Associated Plan','listingpro'); ?>">
+                                    <div class="col-md-1 padding-0 text-center lp-content-before-after" data-content="<?php esc_html_e('Associated Plan','listingpro'); ?>">
                                         <?php
                                         $plan_name = esc_html__('N/A', 'listingpro');
                                         $plan_id = listing_get_metabox_by_ID('Plan_id', get_the_ID());
@@ -419,7 +423,10 @@
                                         echo esc_attr($plan_name);
                                         ?>
                                     </div>
-                                    <div class="col-md-3 padding-0  lp-content-before-after" data-content="<?php esc_html_e('Status','listingpro'); ?>">
+                                    <div class="col-md-2 padding-0 lp-content-before-after text-center" data-content="<?php esc_html_e('Availability','listingpro'); ?>">
+                                        <?php echo ip_availability_badge_html( $postID ); ?>
+                                    </div>
+                                    <div class="col-md-2 padding-0  lp-content-before-after" data-content="<?php esc_html_e('Status','listingpro'); ?>">
 
 
                                         <div class="pull-right">
@@ -599,7 +606,7 @@
                                             <p><?php echo esc_attr($expiry); ?></p>
                                         </div>
                                     </div>
-                                    <div class="col-md-2 padding-0 text-center lp-content-before-after" data-content="<?php esc_html_e('Associated Plan','listingpro'); ?>">
+                                    <div class="col-md-1 padding-0 text-center lp-content-before-after" data-content="<?php esc_html_e('Associated Plan','listingpro'); ?>">
                                         <?php
                                         $plan_name = esc_html__('N/A', 'listingpro');
                                         $plan_id = listing_get_metabox_by_ID('Plan_id', $postID);
@@ -609,7 +616,10 @@
                                         echo esc_attr($plan_name);
                                         ?>
                                     </div>
-                                    <div class="col-md-3 lp-content-before-after padding-0" data-content="<?php esc_html_e('Status','listingpro'); ?>">
+                                    <div class="col-md-2 padding-0 lp-content-before-after text-center" data-content="<?php esc_html_e('Availability','listingpro'); ?>">
+                                        <?php echo ip_availability_badge_html( $postID ); ?>
+                                    </div>
+                                    <div class="col-md-2 lp-content-before-after padding-0" data-content="<?php esc_html_e('Status','listingpro'); ?>">
 
 
                                         <div class="pull-right">
@@ -773,7 +783,9 @@
 
                                         </div>
                                     </div>
-									<div class="col-md-2"></div>
+									<div class="col-md-2 padding-0 lp-content-before-after text-center" data-content="<?php esc_html_e('Availability','listingpro'); ?>">
+                                        <?php echo ip_availability_badge_html( $postID ); ?>
+                                    </div>
                                     <div class="col-md-1 padding-0 lp-content-before-after" data-content="<?php esc_html_e('Associated Plan','listingpro'); ?>">
                                         <?php
                                         $plan_name = esc_html__('N/A', 'listingpro');

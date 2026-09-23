@@ -352,27 +352,24 @@ function ip_availability_dashboard_controls_html( $listing_id ) {
 
 add_action( 'wp_enqueue_scripts', 'ip_availability_enqueue_dashboard_js' );
 /**
- * Only loaded on the dashboard page — the URL Config option is read
- * dynamically (same approach as the trial system's plan resolution)
- * rather than assuming a fixed slug, since 'Frontend Dashboard Page' is
- * itself a configurable field (see AUDIT.md from the earlier speed-fix
- * work — that same field was found pointing at a stale staging URL once
- * already, so it's treated as unreliable to hardcode against here too;
- * comparing the resolved permalink instead of the raw option string is
- * safe against that particular failure mode).
+ * Only loaded on the dashboard page — detected via is_page_template()
+ * against the theme's own confirmed template file
+ * (theme/listingpro/template-dashboard.php), not by comparing URLs.
+ *
+ * An earlier version tried to match the current URL against
+ * listingpro_url('listing-author') (the configured dashboard permalink).
+ * That broke silently on staging: home_url( add_query_arg( null, null ) )
+ * double-prefixed the path, because home_url() already returns
+ * '.../staging/3959' there and add_query_arg(null, null) returns the raw
+ * request URI, which *also* already contains '/staging/3959/...' — the
+ * two concatenated never matched the real dashboard URL, so this function
+ * always returned early, the script never loaded, and clicking a status
+ * did nothing with no console error, since there was no handler bound at
+ * all. is_page_template() sidesteps this entirely: it doesn't care what
+ * URL or subdirectory the page is served from.
  */
 function ip_availability_enqueue_dashboard_js() {
-	if ( ! function_exists( 'listingpro_url' ) ) {
-		return;
-	}
-
-	$dashboard_url = listingpro_url( 'listing-author' );
-	if ( empty( $dashboard_url ) ) {
-		return;
-	}
-
-	$current_url = home_url( add_query_arg( null, null ) );
-	if ( strtok( $current_url, '?' ) !== strtok( $dashboard_url, '?' ) ) {
+	if ( ! is_page_template( 'template-dashboard.php' ) ) {
 		return;
 	}
 

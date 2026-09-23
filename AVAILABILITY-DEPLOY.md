@@ -36,11 +36,21 @@ status to Amber.
   Green to Amber. It never touches Amber (nothing further to decay) or a
   deliberately-set Red — a stale Red is a real choice the instructor made,
   and staleness shouldn't quietly override it.
-- **Dashboard control:** styled as list items matching the dropdown's own
-  existing Edit/Remove/Change Plan rows (colored circle icon + label, the
-  active one bold with a checkmark) rather than a row of buttons — the
-  dropdown's width is sized for short text links, and three side-by-side
-  buttons clipped against that width in the first version of this.
+- **Dedicated dashboard column:** "My Listings" now has its own
+  Availability column (between Associated Plan and Status) showing the
+  same badge used everywhere else — Associated Plan and Status each gave
+  up one grid unit to make room, on the three tabs that needed it; the
+  fourth ("Expired" listings) already had a free spacer div doing nothing,
+  reused instead. Setting the status is still done from the "⋯" dropdown
+  menu, styled as list items matching the existing Edit/Remove/Change Plan
+  rows — column shows it, dropdown changes it.
+- **Dashboard JS load bug fixed:** the control's click handler wasn't
+  binding at all — `ip_availability_enqueue_dashboard_js()` tried to
+  detect the dashboard page by comparing URLs, and that comparison
+  double-prefixed the path on staging (`home_url()` already includes
+  `/staging/3959`, and the request URI being compared against it already
+  included that same segment again). Replaced with `is_page_template()`,
+  which doesn't care what subdirectory the page is served from.
 - **Hard block on Red:** disables the contact form's Send button and the
   booking widget's controls via JS, with an inline explanation. Targets
   both booking mechanisms this codebase has (`.classic-booking-appointment`
