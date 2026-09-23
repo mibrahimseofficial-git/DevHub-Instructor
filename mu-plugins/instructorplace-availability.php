@@ -313,15 +313,15 @@ function ip_availability_dashboard_controls_html( $listing_id ) {
 	$current = ip_availability_get_status( $listing_id );
 	$options = array(
 		'green' => array(
-			'label' => esc_html__( 'Set Available', 'listingpro' ),
+			'label' => esc_html__( 'Available', 'listingpro' ),
 			'color' => ip_availability_color( 'green' ),
 		),
 		'amber' => array(
-			'label' => esc_html__( 'Set Limited Slots', 'listingpro' ),
+			'label' => esc_html__( 'Limited Slots', 'listingpro' ),
 			'color' => ip_availability_color( 'amber' ),
 		),
 		'red'   => array(
-			'label' => esc_html__( 'Set Not Available', 'listingpro' ),
+			'label' => esc_html__( 'Not Available', 'listingpro' ),
 			'color' => ip_availability_color( 'red' ),
 		),
 	);
