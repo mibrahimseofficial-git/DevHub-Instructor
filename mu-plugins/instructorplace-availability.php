@@ -5,7 +5,7 @@
  * from their dashboard, shows it as a badge on their listing card and
  * profile, disables the contact form and booking widget when Red, and
  * auto-downgrades a stale (30+ day untouched) status to Amber.
- * Version: 1.2.0
+ * Version: 1.3.0
  *
  * DESIGN NOTES — read before changing anything
  * ---------------------------------------------
@@ -60,11 +60,28 @@
  *   templates/dashboard/listings.php (already overridden by the trial
  *   listings plugin for its own countdown fix — this adds to the same
  *   file rather than creating a second, conflicting override).
- * - Listing card badge: child-theme override of listing-loop.php (the
- *   confirmed live search-results card template — see
- *   theme/listingpro/find-instructor.php's own get_template_part call).
+ * - Listing card badge on /find-instructor/: child-theme override of
+ *   templates/loop/loop3.php. NOT listing-loop.php, despite that being
+ *   the file find-instructor-ajax.php's own get_template_part() call
+ *   names directly — listing-loop.php checks
+ *   $listing_layout == 'grid_view_v3' (this site's actual configured
+ *   Listing Layout option) and delegates to
+ *   get_template_part('templates/loop/loop3') before ever reaching the
+ *   card markup this plugin first patched there. That first attempt was a
+ *   real miss, caught by comparing the exact card class string
+ *   ("grid_view6 grid_view_s5 ... listing-grid-view2-outer") against the
+ *   live page's actual HTML — it matches loop3.php's card div verbatim,
+ *   not any of the five variants inside listing-loop.php.
+ *   listing-loop.php's own child-theme override is left in place in case
+ *   a different Listing Layout setting or another page ever routes
+ *   through it, but it does nothing for this site's actual search
+ *   results as currently configured.
  * - Profile page badge: child-theme override of the small
  *   content/title-bar.php partial, next to the existing "Claimed" badge.
+ * - Homepage grid: that one is an Elementor Loop Grid template (lives in
+ *   the database, not as a file) — see the separate [listing_availability]
+ *   shortcode below, styled to match the site's own existing
+ *   'listing_status' Elementor shortcode.
  */
 
 if ( ! defined( 'ABSPATH' ) ) {

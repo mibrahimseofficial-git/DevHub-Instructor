@@ -26,6 +26,14 @@ status to Amber.
    `wp-content/themes/listingpro-child/templates/single-list/listing-details-style6/content/title-bar.php`
    (new file — create the nested folders if they don't exist)
 
+5. `child-theme/templates/loop/loop3.php` →
+   `wp-content/themes/listingpro-child/templates/loop/loop3.php`
+   (new file — this, not listing-loop.php, is the actual card template
+   /find-instructor/ renders on this site. listing-loop.php's own
+   override from earlier is left in place but doesn't do anything for
+   current search results — see the mu-plugin's own header comment for
+   why.)
+
 ## How it works
 
 - **Default status:** a listing that's never had this touched shows Green,
