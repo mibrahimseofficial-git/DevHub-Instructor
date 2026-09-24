@@ -250,9 +250,11 @@
 										
 									</ul>
 								</div>
+								<div style="position:absolute; left:10px; bottom:10px; z-index:5;">
+									<?php echo ip_availability_badge_html( get_the_ID() ); ?>
+								</div>
 								<div class="lp-grid6-top-container">
 									<div class="lp-grid6-top-container-inner">
-										<?php echo ip_availability_badge_html( get_the_ID() ); ?>
 										 <?php echo listingpro_price_dynesty($post->ID); ?>
 										<h4 class="lp-h4">
 											<a href="<?php echo get_the_permalink(); ?>">
