@@ -9,7 +9,7 @@
  * real countdown shows in the admin "Expire After" column and the
  * front-end dashboard (via a small child-theme template override —
  * see child-theme/templates/dashboard/listings.php in this repo).
- * Version: 1.3.0
+ * Version: 1.4.0
  *
  * DESIGN NOTES — read before changing anything
  * ---------------------------------------------
@@ -117,7 +117,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 define( 'IP_TRIAL_DAYS', 30 );
-define( 'IP_TRIAL_REMINDER_DAYS_BEFORE', 3 ); // Send the "ending soon" email this many days before expiry.
+define( 'IP_TRIAL_REMINDER_DAYS_BEFORE', 7 ); // Send the "ending soon" email this many days before expiry.
 define( 'IP_TRIAL_USER_META', '_ip_trial_used' ); // User meta: set once the user has ever been granted a trial.
 define( 'IP_TRIAL_FREE_GRACE_DAYS', 30 ); // How long a downgraded Free listing stays live before it expires (Phase 2).
 define( 'IP_TRIAL_FREE_REMINDER_DAYS_BEFORE', 3 ); // Send the "listing expiring soon" email this many days before that.
@@ -219,7 +219,13 @@ function ip_trial_days_remaining_in_trial( $listing_id ) {
 	}
 	$now          = current_time( 'timestamp' ); // phpcs:ignore WordPress.DateTime.CurrentTimeTimestamp
 	$days_elapsed = floor( ( $now - $start ) / DAY_IN_SECONDS );
-	return max( 0, IP_TRIAL_DAYS - $days_elapsed );
+	// '_ip_trial_extension_days' is added to by the admin panel's "Extend"
+	// action. Kept as a separate, cumulative value rather than moving
+	// '_ip_trial_start' itself, so the real start date stays an honest
+	// record and every extension is independently auditable.
+	$extension    = (int) get_post_meta( $listing_id, '_ip_trial_extension_days', true );
+	$total_days   = IP_TRIAL_DAYS + $extension;
+	return max( 0, $total_days - $days_elapsed );
 }
 
 /**
@@ -236,7 +242,9 @@ function ip_trial_days_remaining_in_free_grace( $listing_id ) {
 	}
 	$now          = current_time( 'timestamp' ); // phpcs:ignore WordPress.DateTime.CurrentTimeTimestamp
 	$days_elapsed = floor( ( $now - $ended ) / DAY_IN_SECONDS );
-	return max( 0, IP_TRIAL_FREE_GRACE_DAYS - $days_elapsed );
+	$extension    = (int) get_post_meta( $listing_id, '_ip_trial_free_extension_days', true );
+	$total_days   = IP_TRIAL_FREE_GRACE_DAYS + $extension;
+	return max( 0, $total_days - $days_elapsed );
 }
 
 /**
@@ -852,4 +860,234 @@ function ip_trial_dashboard_expiry_override( $listingpro_value, $listing_id ) {
 
 	// Not a trial-related listing — leave ListingPro's own value exactly as it was.
 	return $listingpro_value;
+}
+
+/* =====================================================================
+ * 11. ADMIN PANEL — view, extend, or end trials
+ * ===================================================================== */
+
+/**
+ * A dedicated wp-admin page listing every listing currently in either
+ * phase of the trial lifecycle (Premium trial, or the post-trial Free
+ * grace period), with per-row actions to extend the remaining time or end
+ * that phase immediately.
+ *
+ * Restricted to 'edit_others_posts' — the same capability level ListingPro
+ * itself expects of anyone managing listings site-wide (typically Editor
+ * or Admin), not something an instructor's own account has.
+ *
+ * "End Now" reuses the exact same ip_trial_downgrade() /
+ * ip_trial_expire_free_listing() functions the daily cron calls — so
+ * manually ending a Premium trial still sends the normal 'ended'
+ * (downgrade confirmation) email, and manually ending a Free grace period
+ * still sends the normal 'free_expired' email. No separate manual-action
+ * email variant was needed.
+ *
+ * "Extend" adds days via '_ip_trial_extension_days' /
+ * '_ip_trial_free_extension_days' rather than moving the original start
+ * timestamp — see ip_trial_days_remaining_in_trial() /
+ * ip_trial_days_remaining_in_free_grace() above. It also resets that
+ * phase's own reminder-sent flag, so the 7-day reminder can correctly
+ * fire again once the extended listing approaches its new, later expiry.
+ */
+add_action( 'admin_menu', 'ip_trial_register_admin_page' );
+function ip_trial_register_admin_page() {
+	add_submenu_page(
+		'edit.php?post_type=listing',
+		esc_html__( 'Trial Listings', 'listingpro' ),
+		esc_html__( 'Trial Listings', 'listingpro' ),
+		'edit_others_posts',
+		'ip-trial-listings',
+		'ip_trial_render_admin_page'
+	);
+}
+
+/**
+ * Process an Extend or End submission from the admin page, if present.
+ *
+ * @return string A one-line success message to display, or '' if no
+ *                action was submitted this request.
+ */
+function ip_trial_handle_admin_actions() {
+	if ( ! isset( $_POST['ip_trial_action'], $_POST['ip_trial_listing_id'], $_POST['ip_trial_phase'] ) ) {
+		return '';
+	}
+
+	$listing_id = (int) $_POST['ip_trial_listing_id'];
+
+	check_admin_referer( 'ip_trial_admin_action_' . $listing_id, 'ip_trial_admin_nonce' );
+
+	if ( ! current_user_can( 'edit_others_posts' ) ) {
+		wp_die( esc_html__( 'You do not have permission to do that.', 'listingpro' ) );
+	}
+
+	$action = sanitize_key( wp_unslash( $_POST['ip_trial_action'] ) );
+	$phase  = sanitize_key( wp_unslash( $_POST['ip_trial_phase'] ) );
+
+	if ( ! in_array( $phase, array( 'trial', 'free' ), true ) ) {
+		return '';
+	}
+
+	if ( 'extend' === $action ) {
+		$days = isset( $_POST['ip_trial_extend_days'] ) ? max( 1, (int) $_POST['ip_trial_extend_days'] ) : 7;
+
+		if ( 'trial' === $phase ) {
+			$current = (int) get_post_meta( $listing_id, '_ip_trial_extension_days', true );
+			update_post_meta( $listing_id, '_ip_trial_extension_days', $current + $days );
+			update_post_meta( $listing_id, '_ip_trial_reminder_sent', 'no' );
+		} else {
+			$current = (int) get_post_meta( $listing_id, '_ip_trial_free_extension_days', true );
+			update_post_meta( $listing_id, '_ip_trial_free_extension_days', $current + $days );
+			update_post_meta( $listing_id, '_ip_trial_free_reminder_sent', 'no' );
+		}
+
+		/* translators: 1: number of days added, 2: listing title. */
+		return sprintf( esc_html__( 'Extended by %1$d day(s) for "%2$s".', 'listingpro' ), $days, get_the_title( $listing_id ) );
+	}
+
+	if ( 'end' === $action ) {
+		if ( 'trial' === $phase ) {
+			ip_trial_downgrade( $listing_id );
+		} else {
+			ip_trial_expire_free_listing( $listing_id );
+		}
+
+		/* translators: %s: listing title. */
+		return sprintf( esc_html__( 'Ended the trial for "%s".', 'listingpro' ), get_the_title( $listing_id ) );
+	}
+
+	return '';
+}
+
+/**
+ * Every listing currently in Phase 1 (active Premium trial) or Phase 2
+ * (downgraded to Free, still inside the grace period — post_status is
+ * still 'publish', so an already-expired listing is naturally excluded).
+ *
+ * @return array[] Each row: id, phase ('trial'|'free'), phase_label,
+ *                 days_remaining, started_date.
+ */
+function ip_trial_get_all_trial_listings() {
+	$rows = array();
+
+	$phase1_ids = get_posts( array(
+		'post_type'      => 'listing',
+		'post_status'    => 'publish',
+		'posts_per_page' => -1,
+		'fields'         => 'ids',
+		'meta_query'     => array(
+			array(
+				'key'   => '_ip_trial_active',
+				'value' => 'yes',
+			),
+		),
+	) );
+
+	foreach ( $phase1_ids as $id ) {
+		$start  = (int) get_post_meta( $id, '_ip_trial_start', true );
+		$rows[] = array(
+			'id'             => $id,
+			'phase'          => 'trial',
+			'phase_label'    => esc_html__( 'Premium Trial', 'listingpro' ),
+			'days_remaining' => ip_trial_days_remaining_in_trial( $id ),
+			'started_date'   => $start ? date_i18n( get_option( 'date_format' ), $start ) : '',
+		);
+	}
+
+	$phase2_ids = get_posts( array(
+		'post_type'      => 'listing',
+		'post_status'    => 'publish',
+		'posts_per_page' => -1,
+		'fields'         => 'ids',
+		'meta_query'     => array(
+			array(
+				'key'     => '_ip_trial_ended',
+				'compare' => 'EXISTS',
+			),
+		),
+	) );
+
+	foreach ( $phase2_ids as $id ) {
+		$ended  = (int) get_post_meta( $id, '_ip_trial_ended', true );
+		$rows[] = array(
+			'id'             => $id,
+			'phase'          => 'free',
+			'phase_label'    => esc_html__( 'Free Grace Period', 'listingpro' ),
+			'days_remaining' => ip_trial_days_remaining_in_free_grace( $id ),
+			'started_date'   => $ended ? date_i18n( get_option( 'date_format' ), $ended ) : '',
+		);
+	}
+
+	return $rows;
+}
+
+function ip_trial_render_admin_page() {
+	if ( ! current_user_can( 'edit_others_posts' ) ) {
+		wp_die( esc_html__( 'You do not have permission to access this page.', 'listingpro' ) );
+	}
+
+	$notice = ip_trial_handle_admin_actions();
+	$trials = ip_trial_get_all_trial_listings();
+	?>
+	<div class="wrap">
+		<h1><?php esc_html_e( 'Trial Listings', 'listingpro' ); ?></h1>
+
+		<?php if ( $notice ) : ?>
+			<div class="notice notice-success is-dismissible"><p><?php echo esc_html( $notice ); ?></p></div>
+		<?php endif; ?>
+
+		<?php if ( empty( $trials ) ) : ?>
+			<p><?php esc_html_e( 'No listings are currently on a trial or in the post-trial Free grace period.', 'listingpro' ); ?></p>
+		<?php else : ?>
+			<table class="wp-list-table widefat fixed striped">
+				<thead>
+					<tr>
+						<th><?php esc_html_e( 'Listing', 'listingpro' ); ?></th>
+						<th><?php esc_html_e( 'Instructor', 'listingpro' ); ?></th>
+						<th><?php esc_html_e( 'Phase', 'listingpro' ); ?></th>
+						<th><?php esc_html_e( 'Days Remaining', 'listingpro' ); ?></th>
+						<th><?php esc_html_e( 'Started', 'listingpro' ); ?></th>
+						<th><?php esc_html_e( 'Actions', 'listingpro' ); ?></th>
+					</tr>
+				</thead>
+				<tbody>
+					<?php foreach ( $trials as $row ) : ?>
+						<tr>
+							<td>
+								<a href="<?php echo esc_url( get_edit_post_link( $row['id'] ) ); ?>">
+									<?php echo esc_html( get_the_title( $row['id'] ) ); ?>
+								</a>
+							</td>
+							<td>
+								<?php echo esc_html( get_the_author_meta( 'display_name', get_post_field( 'post_author', $row['id'] ) ) ); ?>
+							</td>
+							<td><?php echo esc_html( $row['phase_label'] ); ?></td>
+							<td><?php echo esc_html( $row['days_remaining'] ); ?></td>
+							<td><?php echo esc_html( $row['started_date'] ); ?></td>
+							<td style="white-space:nowrap;">
+								<form method="post" style="display:inline-block; margin-right:6px;">
+									<?php wp_nonce_field( 'ip_trial_admin_action_' . $row['id'], 'ip_trial_admin_nonce' ); ?>
+									<input type="hidden" name="ip_trial_listing_id" value="<?php echo esc_attr( $row['id'] ); ?>">
+									<input type="hidden" name="ip_trial_phase" value="<?php echo esc_attr( $row['phase'] ); ?>">
+									<input type="number" name="ip_trial_extend_days" value="7" min="1" style="width:55px;">
+									<button type="submit" name="ip_trial_action" value="extend" class="button button-secondary">
+										<?php esc_html_e( 'Extend', 'listingpro' ); ?>
+									</button>
+								</form>
+								<form method="post" style="display:inline-block;" onsubmit="return confirm('<?php echo esc_js( __( 'End this now? This cannot be undone.', 'listingpro' ) ); ?>');">
+									<?php wp_nonce_field( 'ip_trial_admin_action_' . $row['id'], 'ip_trial_admin_nonce' ); ?>
+									<input type="hidden" name="ip_trial_listing_id" value="<?php echo esc_attr( $row['id'] ); ?>">
+									<input type="hidden" name="ip_trial_phase" value="<?php echo esc_attr( $row['phase'] ); ?>">
+									<button type="submit" name="ip_trial_action" value="end" class="button button-secondary" style="color:#c62828; border-color:#c62828;">
+										<?php esc_html_e( 'End Now', 'listingpro' ); ?>
+									</button>
+								</form>
+							</td>
+						</tr>
+					<?php endforeach; ?>
+				</tbody>
+			</table>
+		<?php endif; ?>
+	</div>
+	<?php
 }
