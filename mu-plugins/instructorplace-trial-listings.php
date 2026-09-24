@@ -1030,7 +1030,7 @@ function ip_trial_render_admin_page() {
 	$trials = ip_trial_get_all_trial_listings();
 	?>
 	<div class="wrap">
-		<h1><?php esc_html_e( 'Trial Listings', 'listingpro' ); ?></h1>
+		<h1 style="margin-bottom:16px;"><?php esc_html_e( 'Trial Listings', 'listingpro' ); ?></h1>
 
 		<?php if ( $notice ) : ?>
 			<div class="notice notice-success is-dismissible"><p><?php echo esc_html( $notice ); ?></p></div>
@@ -1039,49 +1039,79 @@ function ip_trial_render_admin_page() {
 		<?php if ( empty( $trials ) ) : ?>
 			<p><?php esc_html_e( 'No listings are currently on a trial or in the post-trial Free grace period.', 'listingpro' ); ?></p>
 		<?php else : ?>
-			<table class="wp-list-table widefat fixed striped">
+			<table class="wp-list-table widefat fixed striped" style="border-radius:6px; overflow:hidden;">
 				<thead>
 					<tr>
-						<th><?php esc_html_e( 'Listing', 'listingpro' ); ?></th>
-						<th><?php esc_html_e( 'Instructor', 'listingpro' ); ?></th>
-						<th><?php esc_html_e( 'Phase', 'listingpro' ); ?></th>
-						<th><?php esc_html_e( 'Days Remaining', 'listingpro' ); ?></th>
-						<th><?php esc_html_e( 'Started', 'listingpro' ); ?></th>
-						<th><?php esc_html_e( 'Actions', 'listingpro' ); ?></th>
+						<th style="padding:12px;"><?php esc_html_e( 'Listing', 'listingpro' ); ?></th>
+						<th style="padding:12px;"><?php esc_html_e( 'Instructor', 'listingpro' ); ?></th>
+						<th style="padding:12px;"><?php esc_html_e( 'Phase', 'listingpro' ); ?></th>
+						<th style="padding:12px;"><?php esc_html_e( 'Days Remaining', 'listingpro' ); ?></th>
+						<th style="padding:12px;"><?php esc_html_e( 'Started', 'listingpro' ); ?></th>
+						<th style="padding:12px; min-width:340px;"><?php esc_html_e( 'Actions', 'listingpro' ); ?></th>
 					</tr>
 				</thead>
 				<tbody>
 					<?php foreach ( $trials as $row ) : ?>
+						<?php
+						$is_free_phase = ( 'free' === $row['phase'] );
+						$phase_bg      = $is_free_phase ? '#f0f0f1' : '#eef1ff';
+						$phase_color   = $is_free_phase ? '#50575e' : '#3538cd';
+
+						$days = (int) $row['days_remaining'];
+						if ( $days <= 3 ) {
+							$days_color = '#c62828'; // red
+						} elseif ( $days <= 7 ) {
+							$days_color = '#b26a00'; // amber
+						} else {
+							$days_color = '#2e7d32'; // green
+						}
+						?>
 						<tr>
-							<td>
-								<a href="<?php echo esc_url( get_edit_post_link( $row['id'] ) ); ?>">
+							<td style="padding:12px;">
+								<a href="<?php echo esc_url( get_edit_post_link( $row['id'] ) ); ?>" style="font-weight:600;">
 									<?php echo esc_html( get_the_title( $row['id'] ) ); ?>
 								</a>
 							</td>
-							<td>
+							<td style="padding:12px;">
 								<?php echo esc_html( get_the_author_meta( 'display_name', get_post_field( 'post_author', $row['id'] ) ) ); ?>
 							</td>
-							<td><?php echo esc_html( $row['phase_label'] ); ?></td>
-							<td><?php echo esc_html( $row['days_remaining'] ); ?></td>
-							<td><?php echo esc_html( $row['started_date'] ); ?></td>
-							<td style="white-space:nowrap;">
-								<form method="post" style="display:inline-block; margin-right:6px;">
-									<?php wp_nonce_field( 'ip_trial_admin_action_' . $row['id'], 'ip_trial_admin_nonce' ); ?>
-									<input type="hidden" name="ip_trial_listing_id" value="<?php echo esc_attr( $row['id'] ); ?>">
-									<input type="hidden" name="ip_trial_phase" value="<?php echo esc_attr( $row['phase'] ); ?>">
-									<input type="number" name="ip_trial_extend_days" value="7" min="1" style="width:55px;">
-									<button type="submit" name="ip_trial_action" value="extend" class="button button-secondary">
-										<?php esc_html_e( 'Extend', 'listingpro' ); ?>
-									</button>
-								</form>
-								<form method="post" style="display:inline-block;" onsubmit="return confirm('<?php echo esc_js( __( 'End this now? This cannot be undone.', 'listingpro' ) ); ?>');">
-									<?php wp_nonce_field( 'ip_trial_admin_action_' . $row['id'], 'ip_trial_admin_nonce' ); ?>
-									<input type="hidden" name="ip_trial_listing_id" value="<?php echo esc_attr( $row['id'] ); ?>">
-									<input type="hidden" name="ip_trial_phase" value="<?php echo esc_attr( $row['phase'] ); ?>">
-									<button type="submit" name="ip_trial_action" value="end" class="button button-secondary" style="color:#c62828; border-color:#c62828;">
-										<?php esc_html_e( 'End Now', 'listingpro' ); ?>
-									</button>
-								</form>
+							<td style="padding:12px;">
+								<span style="display:inline-block; background:<?php echo esc_attr( $phase_bg ); ?>; color:<?php echo esc_attr( $phase_color ); ?>; border-radius:20px; padding:4px 12px; font-size:12px; font-weight:600; white-space:nowrap;">
+									<?php echo esc_html( $row['phase_label'] ); ?>
+								</span>
+							</td>
+							<td style="padding:12px;">
+								<span style="color:<?php echo esc_attr( $days_color ); ?>; font-weight:700; font-size:14px;">
+									<?php echo esc_html( $row['days_remaining'] ); ?>
+								</span>
+								<span style="color:#787c82;">
+									<?php echo 1 === $days ? esc_html__( 'day', 'listingpro' ) : esc_html__( 'days', 'listingpro' ); ?>
+								</span>
+							</td>
+							<td style="padding:12px; color:#50575e;"><?php echo esc_html( $row['started_date'] ); ?></td>
+							<td style="padding:12px;">
+								<div style="display:flex; align-items:center; gap:16px; flex-wrap:wrap;">
+									<form method="post" style="display:flex; align-items:center; gap:6px;">
+										<?php wp_nonce_field( 'ip_trial_admin_action_' . $row['id'], 'ip_trial_admin_nonce' ); ?>
+										<input type="hidden" name="ip_trial_listing_id" value="<?php echo esc_attr( $row['id'] ); ?>">
+										<input type="hidden" name="ip_trial_phase" value="<?php echo esc_attr( $row['phase'] ); ?>">
+										<span style="white-space:nowrap;"><?php esc_html_e( 'Extend by', 'listingpro' ); ?></span>
+										<input type="number" name="ip_trial_extend_days" value="7" min="1" style="width:60px;" aria-label="<?php esc_attr_e( 'Number of days to extend', 'listingpro' ); ?>">
+										<span style="white-space:nowrap;"><?php esc_html_e( 'days', 'listingpro' ); ?></span>
+										<button type="submit" name="ip_trial_action" value="extend" class="button button-secondary">
+											<?php esc_html_e( 'Extend', 'listingpro' ); ?>
+										</button>
+									</form>
+									<span style="width:1px; height:24px; background:#dcdcde;"></span>
+									<form method="post" onsubmit="return confirm('<?php echo esc_js( __( 'End this now? This cannot be undone.', 'listingpro' ) ); ?>');">
+										<?php wp_nonce_field( 'ip_trial_admin_action_' . $row['id'], 'ip_trial_admin_nonce' ); ?>
+										<input type="hidden" name="ip_trial_listing_id" value="<?php echo esc_attr( $row['id'] ); ?>">
+										<input type="hidden" name="ip_trial_phase" value="<?php echo esc_attr( $row['phase'] ); ?>">
+										<button type="submit" name="ip_trial_action" value="end" class="button button-secondary" style="color:#c62828; border-color:#c62828;">
+											<?php esc_html_e( 'End Now', 'listingpro' ); ?>
+										</button>
+									</form>
+								</div>
 							</td>
 						</tr>
 					<?php endforeach; ?>
