@@ -1047,7 +1047,7 @@ function ip_trial_render_admin_page() {
 						<th style="padding:12px;"><?php esc_html_e( 'Phase', 'listingpro' ); ?></th>
 						<th style="padding:12px;"><?php esc_html_e( 'Days Remaining', 'listingpro' ); ?></th>
 						<th style="padding:12px;"><?php esc_html_e( 'Started', 'listingpro' ); ?></th>
-						<th style="padding:12px; min-width:340px;"><?php esc_html_e( 'Actions', 'listingpro' ); ?></th>
+						<th style="padding:12px;"><?php esc_html_e( 'Actions', 'listingpro' ); ?></th>
 					</tr>
 				</thead>
 				<tbody>
@@ -1090,28 +1090,25 @@ function ip_trial_render_admin_page() {
 							</td>
 							<td style="padding:12px; color:#50575e;"><?php echo esc_html( $row['started_date'] ); ?></td>
 							<td style="padding:12px;">
-								<div style="display:flex; align-items:center; gap:16px; flex-wrap:wrap;">
-									<form method="post" style="display:flex; align-items:center; gap:6px;">
-										<?php wp_nonce_field( 'ip_trial_admin_action_' . $row['id'], 'ip_trial_admin_nonce' ); ?>
-										<input type="hidden" name="ip_trial_listing_id" value="<?php echo esc_attr( $row['id'] ); ?>">
-										<input type="hidden" name="ip_trial_phase" value="<?php echo esc_attr( $row['phase'] ); ?>">
-										<span style="white-space:nowrap;"><?php esc_html_e( 'Extend by', 'listingpro' ); ?></span>
-										<input type="number" name="ip_trial_extend_days" value="7" min="1" style="width:60px;" aria-label="<?php esc_attr_e( 'Number of days to extend', 'listingpro' ); ?>">
-										<span style="white-space:nowrap;"><?php esc_html_e( 'days', 'listingpro' ); ?></span>
-										<button type="submit" name="ip_trial_action" value="extend" class="button button-secondary">
-											<?php esc_html_e( 'Extend', 'listingpro' ); ?>
-										</button>
+								<form method="post" style="display:flex; align-items:center; gap:6px; flex-wrap:wrap; margin-bottom:10px;">
+									<?php wp_nonce_field( 'ip_trial_admin_action_' . $row['id'], 'ip_trial_admin_nonce' ); ?>
+									<input type="hidden" name="ip_trial_listing_id" value="<?php echo esc_attr( $row['id'] ); ?>">
+									<input type="hidden" name="ip_trial_phase" value="<?php echo esc_attr( $row['phase'] ); ?>">
+									<span style="white-space:nowrap;"><?php esc_html_e( 'Extend by', 'listingpro' ); ?></span>
+									<input type="number" name="ip_trial_extend_days" value="7" min="1" style="width:56px;" aria-label="<?php esc_attr_e( 'Number of days to extend', 'listingpro' ); ?>">
+									<span style="white-space:nowrap;"><?php esc_html_e( 'days', 'listingpro' ); ?></span>
+									<button type="submit" name="ip_trial_action" value="extend" class="button button-secondary">
+										<?php esc_html_e( 'Extend', 'listingpro' ); ?>
+									</button>
+								</form>
+								<form method="post" onsubmit="return confirm('<?php echo esc_js( __( 'End this now? This cannot be undone.', 'listingpro' ) ); ?>');">
+									<?php wp_nonce_field( 'ip_trial_admin_action_' . $row['id'], 'ip_trial_admin_nonce' ); ?>
+									<input type="hidden" name="ip_trial_listing_id" value="<?php echo esc_attr( $row['id'] ); ?>">
+									<input type="hidden" name="ip_trial_phase" value="<?php echo esc_attr( $row['phase'] ); ?>">
+									<button type="submit" name="ip_trial_action" value="end" class="button button-secondary" style="color:#c62828; border-color:#c62828;">
+										<?php esc_html_e( 'End Now', 'listingpro' ); ?>
+									</button>
 									</form>
-									<span style="width:1px; height:24px; background:#dcdcde;"></span>
-									<form method="post" onsubmit="return confirm('<?php echo esc_js( __( 'End this now? This cannot be undone.', 'listingpro' ) ); ?>');">
-										<?php wp_nonce_field( 'ip_trial_admin_action_' . $row['id'], 'ip_trial_admin_nonce' ); ?>
-										<input type="hidden" name="ip_trial_listing_id" value="<?php echo esc_attr( $row['id'] ); ?>">
-										<input type="hidden" name="ip_trial_phase" value="<?php echo esc_attr( $row['phase'] ); ?>">
-										<button type="submit" name="ip_trial_action" value="end" class="button button-secondary" style="color:#c62828; border-color:#c62828;">
-											<?php esc_html_e( 'End Now', 'listingpro' ); ?>
-										</button>
-									</form>
-								</div>
 							</td>
 						</tr>
 					<?php endforeach; ?>
