@@ -198,6 +198,9 @@
 											}
 										?>
 									</div>
+									<div style="position:absolute; left:10px; bottom:10px; z-index:5;">
+										<?php echo ip_availability_badge_html( get_the_ID() ); ?>
+									</div>
 									<?php
 											$openStatus = listingpro_check_time(get_the_ID());
 											if(!empty($openStatus)){
@@ -253,7 +256,6 @@
 								<div class="lp-grid6-top-container">
 									<div class="lp-grid6-top-container-inner">
 										 <?php echo listingpro_price_dynesty($post->ID); ?>
-										<?php echo ip_availability_badge_html( get_the_ID() ); ?>
 										<h4 class="lp-h4">
 											<a href="<?php echo get_the_permalink(); ?>">
 												<?php echo wp_kses_post($CHeckAd); ?>
