@@ -144,7 +144,7 @@
                                     ?>
                                 </div>
 								<div class="lp-grid-box-thumb">
-									<div class="show-img">
+									<div class="show-img" style="position: absolute;">
 										<?php
 											if ( has_post_thumbnail()) {
 												$image = wp_get_attachment_image_src( get_post_thumbnail_id( get_the_ID()), 'listingpro-blog-grid2' );
@@ -175,6 +175,10 @@
 												</a>';
 											}
 										?>
+										
+										<div style="position:absolute; left:10px; bottom:10px; z-index:5;">
+        									<?php echo ip_availability_badge_html( get_the_ID() ); ?>
+        								</div>
 									</div>
 									<div class="hide-img listingpro-list-thumb">
 										<?php
@@ -236,7 +240,10 @@
 
 									?>	
 									
+									
+									
 							   	</div>
+							   	
 								<div class="lp-grid-box-quick">
 									<ul class="lp-post-quick-links clearfix">
 										<?php
@@ -250,9 +257,7 @@
 										
 									</ul>
 								</div>
-								<div style="position:absolute; left:10px; bottom:10px; z-index:5;">
-									<?php echo ip_availability_badge_html( get_the_ID() ); ?>
-								</div>
+								
 								<div class="lp-grid6-top-container">
 									<div class="lp-grid6-top-container-inner">
 										 <?php echo listingpro_price_dynesty($post->ID); ?>
