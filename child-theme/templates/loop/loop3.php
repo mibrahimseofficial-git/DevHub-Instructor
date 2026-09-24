@@ -144,7 +144,7 @@
                                     ?>
                                 </div>
 								<div class="lp-grid-box-thumb">
-									<div class="show-img" style="position: absolute;">
+									<div class="show-img" style="position:relative;">
 										<?php
 											if ( has_post_thumbnail()) {
 												$image = wp_get_attachment_image_src( get_post_thumbnail_id( get_the_ID()), 'listingpro-blog-grid2' );
