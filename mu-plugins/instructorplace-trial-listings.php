@@ -9,7 +9,7 @@
  * real countdown shows in the admin "Expire After" column and the
  * front-end dashboard (via a small child-theme template override —
  * see child-theme/templates/dashboard/listings.php in this repo).
- * Version: 1.7.0
+ * Version: 1.8.0
  *
  * DESIGN NOTES — read before changing anything
  * ---------------------------------------------
@@ -654,6 +654,81 @@ function ip_trial_badge_shortcode( $atts ) {
  * @param string $type            'start' | 'reminder' | 'ended'
  * @param int    $days_remaining  Only used for 'reminder'.
  */
+/**
+ * Wraps trial email body content in Instructor Place's branded HTML email
+ * shell -- logo header, footer with quick links / contact / social —
+ * matching the client's own "Welcome to Instructor Place" registration
+ * email template exactly (same colors, same structure), so every
+ * automated trial email shares one consistent visual identity instead of
+ * looking like a separate, unbranded system.
+ *
+ * @param string $heading       Main heading (may include an emoji; not escaped, this plugin's own text only).
+ * @param string $subheading    Small line under the heading.
+ * @param string $intro_html    Intro paragraph(s) inside the light-gray band.
+ * @param string $sections_html Zero or more ip_trial_email_section() blocks.
+ * @param string $cta_text      Optional CTA button label.
+ * @param string $cta_url       Optional CTA button URL.
+ * @return string
+ */
+function ip_trial_email_wrapper( $heading, $subheading, $intro_html, $sections_html = '', $cta_text = '', $cta_url = '' ) {
+	$logo_url      = 'https://instructorplace.co.uk/wp-content/uploads/2026/05/Link-Instructor-Place-home-%E2%86%92-Instructor-Place-logo.png';
+	$support_email = 'Abdul@instructorplace.co.uk'; // Same address configured in Appearance -> ListingPro Options -> Email Management.
+	$year          = gmdate( 'Y' );
+
+	$cta_html = '';
+	if ( $cta_text && $cta_url ) {
+		$cta_html = '<div style="text-align: center;"><a style="display: inline-block; background: #FF9933; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; margin: 15px 0; font-weight: 600; font-size: 14px;" href="' . esc_url( $cta_url ) . '">' . esc_html( $cta_text ) . '</a></div>';
+	}
+
+	return '<div style="max-width: 600px; margin: 0 auto; background: #ffffff; font-family: -apple-system, BlinkMacSystemFont, \'Segoe UI\', Roboto, sans-serif; line-height: 1.6; color: #333;">'
+		. '<div style="background: #ffffff; color: #113274; padding: 20px 20px; text-align: center; border-radius: 8px 8px 0 0;">'
+		. '<center><img style="height: 50px; margin-bottom: 0px; display: block;" src="' . esc_url( $logo_url ) . '" alt="Instructor Place" /></center>'
+		. '<h1 style="margin: 0; font-size: 24px; font-weight: 600; color: #113274;">' . $heading . '</h1>'
+		. '<p style="margin: 8px 0 0 0; font-size: 14px; color: #113274;">' . esc_html( $subheading ) . '</p>'
+		. '</div>'
+		. '<div style="background: #F5F6F9; padding: 30px 20px;">' . $intro_html . '</div>'
+		. $sections_html
+		. $cta_html
+		. '<p style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #e5e7eb; font-size: 14px; line-height: 1.8; color: #374151;">Questions or need assistance? <a style="color: #113274;" href="mailto:' . esc_attr( $support_email ) . '">Contact our support team</a> or visit our <a style="color: #113274;" href="https://instructorplace.co.uk/contact/">contact page</a>.</p>'
+		. '</div>'
+		. '<div style="background: #113274; color: white; padding: 30px 20px; border-radius: 0 0 8px 8px;">'
+		. '<table style="width: 100%; margin-bottom: 20px;"><tbody><tr>'
+		. '<td style="width: 50%; padding-right: 10px; font-size: 13px;">'
+		. '<h4 style="margin: 0 0 10px 0; color: #ff9933;">Quick Links</h4>'
+		. '<p style="margin: 5px 0;"><a style="color: white; text-decoration: none;" href="https://instructorplace.co.uk/find-instructor/">Browse Directory</a></p>'
+		. '<p style="margin: 5px 0;"><a style="color: white; text-decoration: none;" href="https://instructorplace.co.uk/submit-listing/">List a Service</a></p>'
+		. '<p style="margin: 5px 0;"><a style="color: white; text-decoration: none;" href="https://instructorplace.co.uk/about/">About Us</a></p>'
+		. '</td>'
+		. '<td style="width: 50%; padding-left: 10px; font-size: 13px;">'
+		. '<h4 style="margin: 0 0 10px 0; color: #ff9933;">Contact Us</h4>'
+		. '<p style="margin: 5px 0;"><a style="color: white; text-decoration: none;" href="tel:+447958057298">📞 07958057298</a></p>'
+		. '<p style="margin: 5px 0;"><a style="color: white; text-decoration: none;" href="mailto:' . esc_attr( $support_email ) . '">✉️ ' . esc_html( $support_email ) . '</a></p>'
+		. '<p style="margin: 5px 0;"><a style="color: white; text-decoration: none;" href="https://instructorplace.co.uk/contact/">📧 Contact Form</a></p>'
+		. '</td>'
+		. '</tr></tbody></table>'
+		. '<div style="border-top: 1px solid rgba(255, 255, 255, 0.2); padding-top: 15px; text-align: center; font-size: 12px; opacity: 0.9;">'
+		. '<p style="margin: 0 0 8px 0;">Instructor Place — Bristol\'s trusted community directory</p>'
+		. '<p style="margin: 0 0 10px 0;"><a style="color: #ff9933; text-decoration: none; margin: 0 8px;" href="https://www.facebook.com/people/Instructor-Place/61589993023782/">Facebook</a> | <a style="color: #ff9933; text-decoration: none; margin: 0 8px;" href="https://www.instagram.com/instructorplace/">Instagram</a> | <a style="color: #ff9933; text-decoration: none; margin: 0 8px;" href="https://instructorplace.co.uk/">Website</a></p>'
+		. '<p style="margin: 8px 0 0 0; color: rgba(255, 255, 255, 0.7);">© ' . esc_html( $year ) . ' Instructor Place. All rights reserved. | <a style="color: rgba(255, 255, 255, 0.7);" href="https://instructorplace.co.uk/terms-and-conditions/">Terms &amp; Conditions</a></p>'
+		. '</div>'
+		. '</div>';
+}
+
+/**
+ * One highlighted info-box block, matching the template's own pattern:
+ * an h3 heading, then a white box with the orange left-border accent.
+ *
+ * @param string $heading Section heading (emoji + text, not escaped -- this plugin's own text only).
+ * @param string $box_html Content inside the highlighted box.
+ * @return string
+ */
+function ip_trial_email_section( $heading, $box_html ) {
+	return '<div style="margin: 20px 0;">'
+		. '<h3 style="color: #113274; margin: 0 0 12px 0; font-size: 16px;">' . $heading . '</h3>'
+		. '<div style="background: white; padding: 15px; border-left: 4px solid #FF9933; margin: 15px 0; border-radius: 4px;">' . $box_html . '</div>'
+		. '</div>';
+}
+
 function ip_trial_send_email( $listing_id, $type, $days_remaining = 0 ) {
 	$author_id = get_post_field( 'post_author', $listing_id );
 	$user      = get_userdata( $author_id );
@@ -664,6 +739,8 @@ function ip_trial_send_email( $listing_id, $type, $days_remaining = 0 ) {
 	$site_name     = get_bloginfo( 'name' );
 	$listing_title = get_the_title( $listing_id );
 	$listing_url   = get_permalink( $listing_id );
+	$display_name  = esc_html( $user->display_name );
+	$title_esc     = esc_html( $listing_title );
 
 	// Resolve the dashboard the same way ListingPro's own templates do, so the
 	// link keeps working if the slug changes or the site moves.
@@ -675,49 +752,117 @@ function ip_trial_send_email( $listing_id, $type, $days_remaining = 0 ) {
 	switch ( $type ) {
 		case 'start':
 			$subject = sprintf( '[%s] Your free %d-day Premium trial has started', $site_name, IP_TRIAL_DAYS );
-			$body    = "<p>Hi {$user->display_name},</p>"
-				. "<p>Welcome to {$site_name}! Your listing <strong>{$listing_title}</strong> is now live with a free {IP_TRIAL_DAYS}-day Premium trial — that means top placement in search results and your full profile unlocked (contact details, gallery, map, and more).</p>"
-				. "<p><a href=\"{$listing_url}\">View your listing</a></p>"
-				. "<p>If you'd like to keep Premium visibility after the trial, you can upgrade any time from your <a href=\"{$dashboard_url}\">dashboard</a>. Otherwise your listing will automatically switch to a free Basic listing when the trial ends — it stays live either way.</p>"
-				. "<p>Thanks,<br>{$site_name}</p>";
-			$body    = str_replace( '{IP_TRIAL_DAYS}', IP_TRIAL_DAYS, $body );
+
+			$intro = '<p style="font-size: 14px; line-height: 1.8; color: #374151;">Hi ' . $display_name . ',</p>'
+				. '<p style="font-size: 14px; line-height: 1.8; color: #374151;">Welcome to Instructor Place! Your listing <strong>' . $title_esc . '</strong> is now live with a free ' . (int) IP_TRIAL_DAYS . '-day Premium trial.</p>';
+
+			$sections = ip_trial_email_section(
+				'📝 What\'s Included',
+				'<div style="margin: 10px 0; font-size: 14px;"><strong>✓</strong> Top placement in search results</div>'
+					. '<div style="margin: 10px 0; font-size: 14px;"><strong>✓</strong> Full profile unlocked — gallery, contact details, map, and more</div>'
+					. '<div style="margin: 10px 0; font-size: 14px;"><strong>✓</strong> Increased visibility to learners searching in your area</div>'
+			) . ip_trial_email_section(
+				'💡 Before It Ends',
+				'<p style="margin: 0; font-size: 14px;">If you\'d like to keep Premium visibility after the trial, upgrade any time from your <a style="color:#113274;" href="' . esc_url( $dashboard_url ) . '">dashboard</a>. Otherwise your listing automatically switches to a free Basic listing when the trial ends — it stays live either way.</p>'
+			);
+
+			$body = ip_trial_email_wrapper(
+				'Your Free Trial Has Started! 🎉',
+				IP_TRIAL_DAYS . ' days of Premium visibility, on us',
+				$intro,
+				$sections,
+				'View Your Listing',
+				$listing_url
+			);
 			break;
 
 		case 'reminder':
 			$day_word = ( 1 === (int) $days_remaining ) ? 'day' : 'days';
 			$subject  = sprintf( '[%s] Your Premium trial ends in %d %s', $site_name, $days_remaining, $day_word );
-			$body     = "<p>Hi {$user->display_name},</p>"
-				. "<p>Just a heads up — your free Premium trial for <strong>{$listing_title}</strong> ends in <strong>{$days_remaining} {$day_word}</strong>.</p>"
-				. "<p>After that, your listing switches to a free Basic listing: it stays live, but loses top placement and some profile features.</p>"
-				. "<p>To keep Premium visibility, upgrade from your <a href=\"{$dashboard_url}\">dashboard</a> before the trial ends.</p>"
-				. "<p>Thanks,<br>{$site_name}</p>";
+
+			$intro = '<p style="font-size: 14px; line-height: 1.8; color: #374151;">Hi ' . $display_name . ',</p>'
+				. '<p style="font-size: 14px; line-height: 1.8; color: #374151;">Just a heads up — your free Premium trial for <strong>' . $title_esc . '</strong> ends in <strong>' . (int) $days_remaining . ' ' . esc_html( $day_word ) . '</strong>.</p>';
+
+			$sections = ip_trial_email_section(
+				'⏳ What Happens Next',
+				'<p style="margin: 0; font-size: 14px;">After your trial ends, your listing switches to a free Basic listing: it stays live, but loses top placement and some profile features.</p>'
+			) . ip_trial_email_section(
+				'💡 Keep Your Premium Visibility',
+				'<p style="margin: 0; font-size: 14px;">Upgrade from your <a style="color:#113274;" href="' . esc_url( $dashboard_url ) . '">dashboard</a> before the trial ends to keep everything as-is.</p>'
+			);
+
+			$body = ip_trial_email_wrapper(
+				'Your Trial Ends in ' . (int) $days_remaining . ' ' . esc_html( ucfirst( $day_word ) ) . ' ⏳',
+				'Don\'t lose your Premium visibility',
+				$intro,
+				$sections,
+				'Upgrade Now',
+				$dashboard_url
+			);
 			break;
 
 		case 'ended':
 			$subject = sprintf( '[%s] Your Premium trial has ended', $site_name );
-			$body    = "<p>Hi {$user->display_name},</p>"
-				. "<p>Your free Premium trial for <strong>{$listing_title}</strong> has ended, and your listing is now on the free Basic plan. Your listing is still live and searchable.</p>"
-				. "<p>You can upgrade to Premium or Standard at any time from your <a href=\"{$dashboard_url}\">dashboard</a> to restore top placement and full profile features.</p>"
-				. "<p><a href=\"{$listing_url}\">View your listing</a></p>"
-				. "<p>Thanks,<br>{$site_name}</p>";
+
+			$intro = '<p style="font-size: 14px; line-height: 1.8; color: #374151;">Hi ' . $display_name . ',</p>'
+				. '<p style="font-size: 14px; line-height: 1.8; color: #374151;">Your free Premium trial for <strong>' . $title_esc . '</strong> has ended, and your listing is now on the free Basic plan. Your listing is still live and searchable.</p>';
+
+			$sections = ip_trial_email_section(
+				'🚀 Want Premium Back?',
+				'<p style="margin: 0; font-size: 14px;">You can upgrade to Premium or Standard at any time from your <a style="color:#113274;" href="' . esc_url( $dashboard_url ) . '">dashboard</a> to restore top placement and full profile features.</p>'
+			);
+
+			$body = ip_trial_email_wrapper(
+				'Your Trial Has Ended',
+				'Your listing is now on the Free plan',
+				$intro,
+				$sections,
+				'View Your Listing',
+				$listing_url
+			);
 			break;
 
 		case 'free_reminder':
 			$day_word = ( 1 === (int) $days_remaining ) ? 'day' : 'days';
 			$subject  = sprintf( '[%s] Your free listing expires in %d %s', $site_name, $days_remaining, $day_word );
-			$body     = "<p>Hi {$user->display_name},</p>"
-				. "<p>Your listing <strong>{$listing_title}</strong> is currently live on our free Basic plan, and that listing period ends in <strong>{$days_remaining} {$day_word}</strong>.</p>"
-				. "<p>After that, your listing will stop appearing in search until you renew or upgrade it from your <a href=\"{$dashboard_url}\">dashboard</a>.</p>"
-				. "<p><a href=\"{$listing_url}\">View your listing</a></p>"
-				. "<p>Thanks,<br>{$site_name}</p>";
+
+			$intro = '<p style="font-size: 14px; line-height: 1.8; color: #374151;">Hi ' . $display_name . ',</p>'
+				. '<p style="font-size: 14px; line-height: 1.8; color: #374151;">Your listing <strong>' . $title_esc . '</strong> is currently live on our free Basic plan, and that listing period ends in <strong>' . (int) $days_remaining . ' ' . esc_html( $day_word ) . '</strong>.</p>';
+
+			$sections = ip_trial_email_section(
+				'⏳ What Happens Next',
+				'<p style="margin: 0; font-size: 14px;">After that, your listing will stop appearing in search until you renew or upgrade it from your <a style="color:#113274;" href="' . esc_url( $dashboard_url ) . '">dashboard</a>.</p>'
+			);
+
+			$body = ip_trial_email_wrapper(
+				'Your Listing Expires in ' . (int) $days_remaining . ' ' . esc_html( ucfirst( $day_word ) ),
+				'Renew to stay visible',
+				$intro,
+				$sections,
+				'Go to Dashboard',
+				$dashboard_url
+			);
 			break;
 
 		case 'free_expired':
 			$subject = sprintf( '[%s] Your listing has expired', $site_name );
-			$body    = "<p>Hi {$user->display_name},</p>"
-				. "<p>Your listing <strong>{$listing_title}</strong> has expired and is no longer visible in search results.</p>"
-				. "<p>You can renew or upgrade it any time from your <a href=\"{$dashboard_url}\">dashboard</a>.</p>"
-				. "<p>Thanks,<br>{$site_name}</p>";
+
+			$intro = '<p style="font-size: 14px; line-height: 1.8; color: #374151;">Hi ' . $display_name . ',</p>'
+				. '<p style="font-size: 14px; line-height: 1.8; color: #374151;">Your listing <strong>' . $title_esc . '</strong> has expired and is no longer visible in search results.</p>';
+
+			$sections = ip_trial_email_section(
+				'🚀 Bring It Back',
+				'<p style="margin: 0; font-size: 14px;">You can renew or upgrade it any time from your <a style="color:#113274;" href="' . esc_url( $dashboard_url ) . '">dashboard</a>.</p>'
+			);
+
+			$body = ip_trial_email_wrapper(
+				'Your Listing Has Expired',
+				'Renew any time to get back online',
+				$intro,
+				$sections,
+				'Go to Dashboard',
+				$dashboard_url
+			);
 			break;
 
 		default:
