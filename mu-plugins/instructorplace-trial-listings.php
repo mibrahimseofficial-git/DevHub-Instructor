@@ -9,7 +9,7 @@
  * real countdown shows in the admin "Expire After" column and the
  * front-end dashboard (via a small child-theme template override —
  * see child-theme/templates/dashboard/listings.php in this repo).
- * Version: 1.4.0
+ * Version: 1.5.0
  *
  * DESIGN NOTES — read before changing anything
  * ---------------------------------------------
@@ -1026,8 +1026,33 @@ function ip_trial_render_admin_page() {
 		wp_die( esc_html__( 'You do not have permission to access this page.', 'listingpro' ) );
 	}
 
-	$notice = ip_trial_handle_admin_actions();
-	$trials = ip_trial_get_all_trial_listings();
+	$notice     = ip_trial_handle_admin_actions();
+	$all_trials = ip_trial_get_all_trial_listings();
+
+	// Search — filters by listing title or instructor display name.
+	// Plain substring match over the already-fetched array rather than a
+	// second DB query: this list is realistically dozens to a few hundred
+	// rows, never the scale where that would matter.
+	$search = isset( $_GET['s'] ) ? sanitize_text_field( wp_unslash( $_GET['s'] ) ) : '';
+	$trials = $all_trials;
+	if ( '' !== $search ) {
+		$needle = function_exists( 'mb_strtolower' ) ? mb_strtolower( $search ) : strtolower( $search );
+		$trials = array_filter( $all_trials, function ( $row ) use ( $needle ) {
+			$title      = get_the_title( $row['id'] );
+			$instructor = get_the_author_meta( 'display_name', get_post_field( 'post_author', $row['id'] ) );
+			$haystack   = function_exists( 'mb_strtolower' ) ? mb_strtolower( $title . ' ' . $instructor ) : strtolower( $title . ' ' . $instructor );
+			return false !== strpos( $haystack, $needle );
+		} );
+	}
+	$trials = array_values( $trials );
+
+	// Pagination over the (possibly search-filtered) result set.
+	$per_page     = 20;
+	$total_items  = count( $trials );
+	$total_pages  = max( 1, (int) ceil( $total_items / $per_page ) );
+	$current_page = isset( $_GET['paged'] ) ? max( 1, (int) $_GET['paged'] ) : 1;
+	$current_page = min( $current_page, $total_pages );
+	$page_trials  = array_slice( $trials, ( $current_page - 1 ) * $per_page, $per_page );
 	?>
 	<div class="wrap">
 		<h1 style="margin-bottom:16px;"><?php esc_html_e( 'Trial Listings', 'listingpro' ); ?></h1>
@@ -1036,8 +1061,29 @@ function ip_trial_render_admin_page() {
 			<div class="notice notice-success is-dismissible"><p><?php echo esc_html( $notice ); ?></p></div>
 		<?php endif; ?>
 
-		<?php if ( empty( $trials ) ) : ?>
+		<form method="get" style="margin-bottom:12px;">
+			<input type="hidden" name="page" value="ip-trial-listings">
+			<p class="search-box" style="margin:0;">
+				<label class="screen-reader-text" for="ip-trial-search-input"><?php esc_html_e( 'Search listings or instructors', 'listingpro' ); ?></label>
+				<input type="search" id="ip-trial-search-input" name="s" value="<?php echo esc_attr( $search ); ?>" placeholder="<?php esc_attr_e( 'Search by listing or instructor…', 'listingpro' ); ?>">
+				<button type="submit" class="button"><?php esc_html_e( 'Search', 'listingpro' ); ?></button>
+				<?php if ( '' !== $search ) : ?>
+					<a href="<?php echo esc_url( remove_query_arg( array( 's', 'paged' ) ) ); ?>" class="button-link" style="margin-left:6px;">
+						<?php esc_html_e( 'Clear', 'listingpro' ); ?>
+					</a>
+				<?php endif; ?>
+			</p>
+		</form>
+
+		<?php if ( empty( $all_trials ) ) : ?>
 			<p><?php esc_html_e( 'No listings are currently on a trial or in the post-trial Free grace period.', 'listingpro' ); ?></p>
+		<?php elseif ( empty( $page_trials ) ) : ?>
+			<p>
+				<?php
+				/* translators: %s: the search term that matched nothing. */
+				echo esc_html( sprintf( __( 'No listings or instructors match "%s".', 'listingpro' ), $search ) );
+				?>
+			</p>
 		<?php else : ?>
 			<table class="wp-list-table widefat fixed striped" style="border-radius:6px; overflow:hidden;">
 				<thead>
@@ -1047,11 +1093,11 @@ function ip_trial_render_admin_page() {
 						<th style="padding:12px;"><?php esc_html_e( 'Phase', 'listingpro' ); ?></th>
 						<th style="padding:12px;"><?php esc_html_e( 'Days Remaining', 'listingpro' ); ?></th>
 						<th style="padding:12px;"><?php esc_html_e( 'Started', 'listingpro' ); ?></th>
-						<th style="padding:12px;"><?php esc_html_e( 'Actions', 'listingpro' ); ?></th>
+						<th style="padding:12px; width:170px;"><?php esc_html_e( 'Actions', 'listingpro' ); ?></th>
 					</tr>
 				</thead>
 				<tbody>
-					<?php foreach ( $trials as $row ) : ?>
+					<?php foreach ( $page_trials as $row ) : ?>
 						<?php
 						$is_free_phase = ( 'free' === $row['phase'] );
 						$phase_bg      = $is_free_phase ? '#f0f0f1' : '#eef1ff';
@@ -1090,30 +1136,76 @@ function ip_trial_render_admin_page() {
 							</td>
 							<td style="padding:12px; color:#50575e;"><?php echo esc_html( $row['started_date'] ); ?></td>
 							<td style="padding:12px;">
-								<form method="post" style="display:flex; align-items:center; gap:6px; flex-wrap:wrap; margin-bottom:10px;">
-									<?php wp_nonce_field( 'ip_trial_admin_action_' . $row['id'], 'ip_trial_admin_nonce' ); ?>
-									<input type="hidden" name="ip_trial_listing_id" value="<?php echo esc_attr( $row['id'] ); ?>">
-									<input type="hidden" name="ip_trial_phase" value="<?php echo esc_attr( $row['phase'] ); ?>">
-									<span style="white-space:nowrap;"><?php esc_html_e( 'Extend by', 'listingpro' ); ?></span>
-									<input type="number" name="ip_trial_extend_days" value="7" min="1" style="width:56px;" aria-label="<?php esc_attr_e( 'Number of days to extend', 'listingpro' ); ?>">
-									<span style="white-space:nowrap;"><?php esc_html_e( 'days', 'listingpro' ); ?></span>
-									<button type="submit" name="ip_trial_action" value="extend" class="button button-secondary">
-										<?php esc_html_e( 'Extend', 'listingpro' ); ?>
-									</button>
-								</form>
-								<form method="post" onsubmit="return confirm('<?php echo esc_js( __( 'End this now? This cannot be undone.', 'listingpro' ) ); ?>');">
-									<?php wp_nonce_field( 'ip_trial_admin_action_' . $row['id'], 'ip_trial_admin_nonce' ); ?>
-									<input type="hidden" name="ip_trial_listing_id" value="<?php echo esc_attr( $row['id'] ); ?>">
-									<input type="hidden" name="ip_trial_phase" value="<?php echo esc_attr( $row['phase'] ); ?>">
-									<button type="submit" name="ip_trial_action" value="end" class="button button-secondary" style="color:#c62828; border-color:#c62828;">
-										<?php esc_html_e( 'End Now', 'listingpro' ); ?>
-									</button>
+								<div style="display:flex; align-items:center; gap:4px;">
+									<form method="post" style="display:flex; align-items:center; gap:4px;">
+										<?php wp_nonce_field( 'ip_trial_admin_action_' . $row['id'], 'ip_trial_admin_nonce' ); ?>
+										<input type="hidden" name="ip_trial_listing_id" value="<?php echo esc_attr( $row['id'] ); ?>">
+										<input type="hidden" name="ip_trial_phase" value="<?php echo esc_attr( $row['phase'] ); ?>">
+										<input
+											type="number"
+											name="ip_trial_extend_days"
+											value="7"
+											min="1"
+											style="width:48px; padding:2px 4px;"
+											aria-label="<?php esc_attr_e( 'Number of days to extend', 'listingpro' ); ?>"
+										>
+										<button
+											type="submit"
+											name="ip_trial_action"
+											value="extend"
+											class="button button-secondary"
+											style="padding:0 6px; line-height:28px; height:30px;"
+											title="<?php esc_attr_e( 'Extend', 'listingpro' ); ?>"
+											aria-label="<?php esc_attr_e( 'Extend by the number of days entered', 'listingpro' ); ?>"
+										>
+											<span class="dashicons dashicons-plus-alt2" style="line-height:28px;"></span>
+										</button>
 									</form>
+									<form method="post" onsubmit="return confirm('<?php echo esc_js( __( 'End this now? This cannot be undone.', 'listingpro' ) ); ?>');">
+										<?php wp_nonce_field( 'ip_trial_admin_action_' . $row['id'], 'ip_trial_admin_nonce' ); ?>
+										<input type="hidden" name="ip_trial_listing_id" value="<?php echo esc_attr( $row['id'] ); ?>">
+										<input type="hidden" name="ip_trial_phase" value="<?php echo esc_attr( $row['phase'] ); ?>">
+										<button
+											type="submit"
+											name="ip_trial_action"
+											value="end"
+											class="button button-secondary"
+											style="padding:0 6px; height:30px; color:#c62828; border-color:#c62828;"
+											title="<?php esc_attr_e( 'End Now', 'listingpro' ); ?>"
+											aria-label="<?php esc_attr_e( 'End this trial now', 'listingpro' ); ?>"
+										>
+											<span class="dashicons dashicons-dismiss" style="line-height:28px;"></span>
+										</button>
+									</form>
+								</div>
 							</td>
 						</tr>
 					<?php endforeach; ?>
 				</tbody>
 			</table>
+
+			<?php if ( $total_pages > 1 ) : ?>
+				<div class="tablenav" style="margin-top:12px;">
+					<div class="tablenav-pages">
+						<span class="displaying-num">
+							<?php
+							/* translators: %s: total number of matching listings. */
+							echo esc_html( sprintf( _n( '%s item', '%s items', $total_items, 'listingpro' ), number_format_i18n( $total_items ) ) );
+							?>
+						</span>
+						<?php
+						echo paginate_links( array( // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- paginate_links() output is already safe.
+							'base'      => add_query_arg( 'paged', '%#%' ),
+							'format'    => '',
+							'current'   => $current_page,
+							'total'     => $total_pages,
+							'prev_text' => esc_html__( '‹', 'listingpro' ),
+							'next_text' => esc_html__( '›', 'listingpro' ),
+						) );
+						?>
+					</div>
+				</div>
+			<?php endif; ?>
 		<?php endif; ?>
 	</div>
 	<?php
