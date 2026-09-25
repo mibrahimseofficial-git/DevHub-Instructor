@@ -9,7 +9,7 @@
  * real countdown shows in the admin "Expire After" column and the
  * front-end dashboard (via a small child-theme template override —
  * see child-theme/templates/dashboard/listings.php in this repo).
- * Version: 1.6.0
+ * Version: 1.7.0
  *
  * DESIGN NOTES — read before changing anything
  * ---------------------------------------------
@@ -1073,7 +1073,7 @@ function ip_trial_render_admin_page() {
 	?>
 	<div class="wrap ip-trial-admin">
 		<style>
-			.ip-trial-admin { max-width: 1240px; }
+			.ip-trial-admin { max-width: none; }
 			.ip-trial-admin .ip-trial-header {
 				display: flex; align-items: center; justify-content: space-between;
 				flex-wrap: wrap; gap: 16px; margin: 12px 0 24px;
@@ -1081,7 +1081,7 @@ function ip_trial_render_admin_page() {
 			.ip-trial-admin .ip-trial-header h1 {
 				font-size: 23px; font-weight: 600; margin: 0; padding: 0; color: #1d2327;
 			}
-			.ip-trial-admin .ip-trial-search-wrap { position: relative; margin: 0; }
+			.ip-trial-admin .ip-trial-search-wrap { position: relative; margin: 0 0 20px; }
 			.ip-trial-admin .ip-trial-search-wrap .dashicons-search {
 				position: absolute; left: 10px; top: 50%; transform: translateY(-50%);
 				color: #9ca3af; font-size: 16px; width: 16px; height: 16px; pointer-events: none;
@@ -1140,7 +1140,7 @@ function ip_trial_render_admin_page() {
 			}
 			.ip-trial-admin .ip-icon-btn {
 				display: inline-flex; align-items: center; justify-content: center;
-				width: 30px; height: 30px; border-radius: 6px; border: 1px solid #d1d5db;
+				width: 44px; height: 30px; border-radius: 6px; border: 1px solid #d1d5db;
 				background: #fff; cursor: pointer; padding: 0;
 				transition: background-color 0.15s ease, border-color 0.15s ease;
 			}
@@ -1159,26 +1159,6 @@ function ip_trial_render_admin_page() {
 
 		<div class="ip-trial-header">
 			<h1><?php esc_html_e( 'Trial Listings', 'listingpro' ); ?></h1>
-			<form method="get" class="ip-trial-search-wrap">
-				<input type="hidden" name="post_type" value="listing">
-				<input type="hidden" name="page" value="ip-trial-listings">
-				<span class="dashicons dashicons-search" aria-hidden="true"></span>
-				<label class="screen-reader-text" for="ip-trial-search-input">
-					<?php esc_html_e( 'Search listings or instructors', 'listingpro' ); ?>
-				</label>
-				<input
-					type="search"
-					id="ip-trial-search-input"
-					name="s"
-					value="<?php echo esc_attr( $search ); ?>"
-					placeholder="<?php esc_attr_e( 'Search by listing or instructor…', 'listingpro' ); ?>"
-				>
-				<?php if ( '' !== $search ) : ?>
-					<a href="<?php echo esc_url( remove_query_arg( array( 's', 'paged' ) ) ); ?>" class="button-link" style="margin-left:8px; font-size:13px;">
-						<?php esc_html_e( 'Clear', 'listingpro' ); ?>
-					</a>
-				<?php endif; ?>
-			</form>
 		</div>
 
 		<?php if ( $notice ) : ?>
@@ -1199,6 +1179,27 @@ function ip_trial_render_admin_page() {
 				<div class="ip-trial-stat-label"><?php esc_html_e( 'Expiring in 3 Days or Less', 'listingpro' ); ?></div>
 			</div>
 		</div>
+
+		<form method="get" class="ip-trial-search-wrap">
+			<input type="hidden" name="post_type" value="listing">
+			<input type="hidden" name="page" value="ip-trial-listings">
+			<span class="dashicons dashicons-search" aria-hidden="true"></span>
+			<label class="screen-reader-text" for="ip-trial-search-input">
+				<?php esc_html_e( 'Search listings or instructors', 'listingpro' ); ?>
+			</label>
+			<input
+				type="search"
+				id="ip-trial-search-input"
+				name="s"
+				value="<?php echo esc_attr( $search ); ?>"
+				placeholder="<?php esc_attr_e( 'Search by listing or instructor…', 'listingpro' ); ?>"
+			>
+			<?php if ( '' !== $search ) : ?>
+				<a href="<?php echo esc_url( remove_query_arg( array( 's', 'paged' ) ) ); ?>" class="button-link" style="margin-left:8px; font-size:13px;">
+					<?php esc_html_e( 'Clear', 'listingpro' ); ?>
+				</a>
+			<?php endif; ?>
+		</form>
 
 		<?php if ( empty( $all_trials ) ) : ?>
 			<div class="ip-trial-card">
