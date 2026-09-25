@@ -9,7 +9,7 @@
  * real countdown shows in the admin "Expire After" column and the
  * front-end dashboard (via a small child-theme template override —
  * see child-theme/templates/dashboard/listings.php in this repo).
- * Version: 1.8.0
+ * Version: 1.9.0
  *
  * DESIGN NOTES — read before changing anything
  * ---------------------------------------------
@@ -680,6 +680,13 @@ function ip_trial_email_wrapper( $heading, $subheading, $intro_html, $sections_h
 		$cta_html = '<div style="text-align: center;"><a style="display: inline-block; background: #FF9933; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; margin: 15px 0; font-weight: 600; font-size: 14px;" href="' . esc_url( $cta_url ) . '">' . esc_html( $cta_text ) . '</a></div>';
 	}
 
+	// A single outer wrapper constrains the WHOLE email (header through
+	// footer) to 600px. The client's own pasted template had the footer as
+	// a separate sibling div with no width constraint of its own, which is
+	// exactly why its footer rendered full-bleed width in some clients
+	// instead of matching the 600px content above it — fixed here by
+	// nesting everything inside one outer container that only closes at
+	// the very end.
 	return '<div style="max-width: 600px; margin: 0 auto; background: #ffffff; font-family: -apple-system, BlinkMacSystemFont, \'Segoe UI\', Roboto, sans-serif; line-height: 1.6; color: #333;">'
 		. '<div style="background: #ffffff; color: #113274; padding: 20px 20px; text-align: center; border-radius: 8px 8px 0 0;">'
 		. '<center><img style="height: 50px; margin-bottom: 0px; display: block;" src="' . esc_url( $logo_url ) . '" alt="Instructor Place" /></center>'
@@ -690,7 +697,6 @@ function ip_trial_email_wrapper( $heading, $subheading, $intro_html, $sections_h
 		. $sections_html
 		. $cta_html
 		. '<p style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #e5e7eb; font-size: 14px; line-height: 1.8; color: #374151;">Questions or need assistance? <a style="color: #113274;" href="mailto:' . esc_attr( $support_email ) . '">Contact our support team</a> or visit our <a style="color: #113274;" href="https://instructorplace.co.uk/contact/">contact page</a>.</p>'
-		. '</div>'
 		. '<div style="background: #113274; color: white; padding: 30px 20px; border-radius: 0 0 8px 8px;">'
 		. '<table style="width: 100%; margin-bottom: 20px;"><tbody><tr>'
 		. '<td style="width: 50%; padding-right: 10px; font-size: 13px;">'
@@ -710,6 +716,7 @@ function ip_trial_email_wrapper( $heading, $subheading, $intro_html, $sections_h
 		. '<p style="margin: 0 0 8px 0;">Instructor Place — Bristol\'s trusted community directory</p>'
 		. '<p style="margin: 0 0 10px 0;"><a style="color: #ff9933; text-decoration: none; margin: 0 8px;" href="https://www.facebook.com/people/Instructor-Place/61589993023782/">Facebook</a> | <a style="color: #ff9933; text-decoration: none; margin: 0 8px;" href="https://www.instagram.com/instructorplace/">Instagram</a> | <a style="color: #ff9933; text-decoration: none; margin: 0 8px;" href="https://instructorplace.co.uk/">Website</a></p>'
 		. '<p style="margin: 8px 0 0 0; color: rgba(255, 255, 255, 0.7);">© ' . esc_html( $year ) . ' Instructor Place. All rights reserved. | <a style="color: rgba(255, 255, 255, 0.7);" href="https://instructorplace.co.uk/terms-and-conditions/">Terms &amp; Conditions</a></p>'
+		. '</div>'
 		. '</div>'
 		. '</div>';
 }
