@@ -9,7 +9,7 @@
  * real countdown shows in the admin "Expire After" column and the
  * front-end dashboard (via a small child-theme template override —
  * see child-theme/templates/dashboard/listings.php in this repo).
- * Version: 1.5.0
+ * Version: 1.6.0
  *
  * DESIGN NOTES — read before changing anything
  * ---------------------------------------------
@@ -1053,139 +1053,271 @@ function ip_trial_render_admin_page() {
 	$current_page = isset( $_GET['paged'] ) ? max( 1, (int) $_GET['paged'] ) : 1;
 	$current_page = min( $current_page, $total_pages );
 	$page_trials  = array_slice( $trials, ( $current_page - 1 ) * $per_page, $per_page );
+
+	// Summary counts always reflect the FULL set, not the search-filtered
+	// or paginated one, so the at-a-glance numbers don't shift just
+	// because someone typed into the search box.
+	$count_trial    = 0;
+	$count_free     = 0;
+	$count_expiring = 0;
+	foreach ( $all_trials as $t ) {
+		if ( 'trial' === $t['phase'] ) {
+			++$count_trial;
+		} else {
+			++$count_free;
+		}
+		if ( (int) $t['days_remaining'] <= 3 ) {
+			++$count_expiring;
+		}
+	}
 	?>
-	<div class="wrap">
-		<h1 style="margin-bottom:16px;"><?php esc_html_e( 'Trial Listings', 'listingpro' ); ?></h1>
+	<div class="wrap ip-trial-admin">
+		<style>
+			.ip-trial-admin { max-width: 1240px; }
+			.ip-trial-admin .ip-trial-header {
+				display: flex; align-items: center; justify-content: space-between;
+				flex-wrap: wrap; gap: 16px; margin: 12px 0 24px;
+			}
+			.ip-trial-admin .ip-trial-header h1 {
+				font-size: 23px; font-weight: 600; margin: 0; padding: 0; color: #1d2327;
+			}
+			.ip-trial-admin .ip-trial-search-wrap { position: relative; margin: 0; }
+			.ip-trial-admin .ip-trial-search-wrap .dashicons-search {
+				position: absolute; left: 10px; top: 50%; transform: translateY(-50%);
+				color: #9ca3af; font-size: 16px; width: 16px; height: 16px; pointer-events: none;
+			}
+			.ip-trial-admin .ip-trial-search-wrap input[type="search"] {
+				padding: 0 12px 0 32px; height: 36px; width: 280px;
+				border: 1px solid #d1d5db; border-radius: 6px; box-shadow: none;
+			}
+			.ip-trial-admin .ip-trial-search-wrap input[type="search"]:focus {
+				border-color: #3538cd; box-shadow: 0 0 0 1px #3538cd;
+			}
+			.ip-trial-admin .ip-trial-stats {
+				display: flex; gap: 12px; margin-bottom: 24px; flex-wrap: wrap;
+			}
+			.ip-trial-admin .ip-trial-stat-card {
+				background: #fff; border: 1px solid #e5e7eb; border-radius: 8px;
+				padding: 16px 22px; min-width: 160px;
+				box-shadow: 0 1px 2px rgba(16,24,40,0.04);
+			}
+			.ip-trial-admin .ip-trial-stat-number { font-size: 28px; font-weight: 700; line-height: 1.1; }
+			.ip-trial-admin .ip-trial-stat-label {
+				font-size: 11px; color: #6b7280; text-transform: uppercase;
+				letter-spacing: 0.05em; font-weight: 600; margin-top: 6px;
+			}
+			.ip-trial-admin .ip-trial-card {
+				background: #fff; border: 1px solid #e5e7eb; border-radius: 10px;
+				overflow: hidden; box-shadow: 0 1px 3px rgba(16,24,40,0.05);
+			}
+			.ip-trial-admin table.ip-trial-table { border-collapse: collapse; width: 100%; }
+			.ip-trial-admin table.ip-trial-table thead th {
+				background: #f9fafb; color: #6b7280; font-size: 11px; text-align: left;
+				text-transform: uppercase; letter-spacing: 0.05em; font-weight: 700;
+				padding: 14px 16px; border-bottom: 1px solid #e5e7eb;
+			}
+			.ip-trial-admin table.ip-trial-table tbody td {
+				padding: 14px 16px; border-bottom: 1px solid #f1f2f4;
+				font-size: 13px; vertical-align: middle; color: #1d2327;
+			}
+			.ip-trial-admin table.ip-trial-table tbody tr:last-child td { border-bottom: none; }
+			.ip-trial-admin table.ip-trial-table tbody tr:hover { background: #fafbfc; }
+			.ip-trial-admin .ip-listing-link { font-weight: 600; text-decoration: none; }
+			.ip-trial-admin .ip-listing-link:hover { text-decoration: underline; }
+			.ip-trial-admin .ip-instructor { color: #4b5563; }
+			.ip-trial-admin .ip-badge {
+				display: inline-flex; align-items: center; gap: 6px; border-radius: 20px;
+				padding: 5px 12px; font-size: 12px; font-weight: 600; white-space: nowrap;
+			}
+			.ip-trial-admin .ip-badge-dot { width: 6px; height: 6px; border-radius: 50%; flex: none; }
+			.ip-trial-admin .ip-days-number { font-weight: 700; font-size: 14px; }
+			.ip-trial-admin .ip-days-unit { color: #787c82; margin-left: 3px; }
+			.ip-trial-admin .ip-started { color: #6b7280; }
+			.ip-trial-admin .ip-actions { display: flex; align-items: center; gap: 6px; }
+			.ip-trial-admin .ip-days-input {
+				width: 44px; height: 30px; text-align: center; border-radius: 6px;
+				border: 1px solid #d1d5db; padding: 0 4px;
+			}
+			.ip-trial-admin .ip-icon-btn {
+				display: inline-flex; align-items: center; justify-content: center;
+				width: 30px; height: 30px; border-radius: 6px; border: 1px solid #d1d5db;
+				background: #fff; cursor: pointer; padding: 0;
+				transition: background-color 0.15s ease, border-color 0.15s ease;
+			}
+			.ip-trial-admin .ip-icon-btn .dashicons { font-size: 16px; width: 16px; height: 16px; }
+			.ip-trial-admin .ip-icon-btn-extend { color: #3538cd; border-color: #c7d2fe; }
+			.ip-trial-admin .ip-icon-btn-extend:hover { background: #eef1ff; }
+			.ip-trial-admin .ip-icon-btn-end { color: #c62828; border-color: #f3caca; }
+			.ip-trial-admin .ip-icon-btn-end:hover { background: #fdeaea; }
+			.ip-trial-admin .ip-empty-state { text-align: center; padding: 64px 20px; color: #6b7280; }
+			.ip-trial-admin .ip-empty-state .dashicons {
+				font-size: 40px; width: 40px; height: 40px; color: #d1d5db; margin-bottom: 12px; display: block; margin-left: auto; margin-right: auto;
+			}
+			.ip-trial-admin .ip-empty-state p { font-size: 14px; margin: 0; }
+			.ip-trial-admin .tablenav.ip-trial-tablenav { margin-top: 16px; padding: 0; }
+		</style>
+
+		<div class="ip-trial-header">
+			<h1><?php esc_html_e( 'Trial Listings', 'listingpro' ); ?></h1>
+			<form method="get" class="ip-trial-search-wrap">
+				<input type="hidden" name="post_type" value="listing">
+				<input type="hidden" name="page" value="ip-trial-listings">
+				<span class="dashicons dashicons-search" aria-hidden="true"></span>
+				<label class="screen-reader-text" for="ip-trial-search-input">
+					<?php esc_html_e( 'Search listings or instructors', 'listingpro' ); ?>
+				</label>
+				<input
+					type="search"
+					id="ip-trial-search-input"
+					name="s"
+					value="<?php echo esc_attr( $search ); ?>"
+					placeholder="<?php esc_attr_e( 'Search by listing or instructor…', 'listingpro' ); ?>"
+				>
+				<?php if ( '' !== $search ) : ?>
+					<a href="<?php echo esc_url( remove_query_arg( array( 's', 'paged' ) ) ); ?>" class="button-link" style="margin-left:8px; font-size:13px;">
+						<?php esc_html_e( 'Clear', 'listingpro' ); ?>
+					</a>
+				<?php endif; ?>
+			</form>
+		</div>
 
 		<?php if ( $notice ) : ?>
 			<div class="notice notice-success is-dismissible"><p><?php echo esc_html( $notice ); ?></p></div>
 		<?php endif; ?>
 
-		<form method="get" style="margin-bottom:12px;">
-			<input type="hidden" name="page" value="ip-trial-listings">
-			<p class="search-box" style="margin:0;">
-				<label class="screen-reader-text" for="ip-trial-search-input"><?php esc_html_e( 'Search listings or instructors', 'listingpro' ); ?></label>
-				<input type="search" id="ip-trial-search-input" name="s" value="<?php echo esc_attr( $search ); ?>" placeholder="<?php esc_attr_e( 'Search by listing or instructor…', 'listingpro' ); ?>">
-				<button type="submit" class="button"><?php esc_html_e( 'Search', 'listingpro' ); ?></button>
-				<?php if ( '' !== $search ) : ?>
-					<a href="<?php echo esc_url( remove_query_arg( array( 's', 'paged' ) ) ); ?>" class="button-link" style="margin-left:6px;">
-						<?php esc_html_e( 'Clear', 'listingpro' ); ?>
-					</a>
-				<?php endif; ?>
-			</p>
-		</form>
+		<div class="ip-trial-stats">
+			<div class="ip-trial-stat-card">
+				<div class="ip-trial-stat-number" style="color:#3538cd;"><?php echo esc_html( $count_trial ); ?></div>
+				<div class="ip-trial-stat-label"><?php esc_html_e( 'Premium Trial', 'listingpro' ); ?></div>
+			</div>
+			<div class="ip-trial-stat-card">
+				<div class="ip-trial-stat-number" style="color:#50575e;"><?php echo esc_html( $count_free ); ?></div>
+				<div class="ip-trial-stat-label"><?php esc_html_e( 'Free Grace Period', 'listingpro' ); ?></div>
+			</div>
+			<div class="ip-trial-stat-card">
+				<div class="ip-trial-stat-number" style="color:#c62828;"><?php echo esc_html( $count_expiring ); ?></div>
+				<div class="ip-trial-stat-label"><?php esc_html_e( 'Expiring in 3 Days or Less', 'listingpro' ); ?></div>
+			</div>
+		</div>
 
 		<?php if ( empty( $all_trials ) ) : ?>
-			<p><?php esc_html_e( 'No listings are currently on a trial or in the post-trial Free grace period.', 'listingpro' ); ?></p>
+			<div class="ip-trial-card">
+				<div class="ip-empty-state">
+					<span class="dashicons dashicons-clock" aria-hidden="true"></span>
+					<p><?php esc_html_e( 'No listings are currently on a trial or in the post-trial Free grace period.', 'listingpro' ); ?></p>
+				</div>
+			</div>
 		<?php elseif ( empty( $page_trials ) ) : ?>
-			<p>
-				<?php
-				/* translators: %s: the search term that matched nothing. */
-				echo esc_html( sprintf( __( 'No listings or instructors match "%s".', 'listingpro' ), $search ) );
-				?>
-			</p>
-		<?php else : ?>
-			<table class="wp-list-table widefat fixed striped" style="border-radius:6px; overflow:hidden;">
-				<thead>
-					<tr>
-						<th style="padding:12px;"><?php esc_html_e( 'Listing', 'listingpro' ); ?></th>
-						<th style="padding:12px;"><?php esc_html_e( 'Instructor', 'listingpro' ); ?></th>
-						<th style="padding:12px;"><?php esc_html_e( 'Phase', 'listingpro' ); ?></th>
-						<th style="padding:12px;"><?php esc_html_e( 'Days Remaining', 'listingpro' ); ?></th>
-						<th style="padding:12px;"><?php esc_html_e( 'Started', 'listingpro' ); ?></th>
-						<th style="padding:12px; width:170px;"><?php esc_html_e( 'Actions', 'listingpro' ); ?></th>
-					</tr>
-				</thead>
-				<tbody>
-					<?php foreach ( $page_trials as $row ) : ?>
+			<div class="ip-trial-card">
+				<div class="ip-empty-state">
+					<span class="dashicons dashicons-search" aria-hidden="true"></span>
+					<p>
 						<?php
-						$is_free_phase = ( 'free' === $row['phase'] );
-						$phase_bg      = $is_free_phase ? '#f0f0f1' : '#eef1ff';
-						$phase_color   = $is_free_phase ? '#50575e' : '#3538cd';
-
-						$days = (int) $row['days_remaining'];
-						if ( $days <= 3 ) {
-							$days_color = '#c62828'; // red
-						} elseif ( $days <= 7 ) {
-							$days_color = '#b26a00'; // amber
-						} else {
-							$days_color = '#2e7d32'; // green
-						}
+						/* translators: %s: the search term that matched nothing. */
+						echo esc_html( sprintf( __( 'No listings or instructors match "%s".', 'listingpro' ), $search ) );
 						?>
+					</p>
+				</div>
+			</div>
+		<?php else : ?>
+			<div class="ip-trial-card">
+				<table class="ip-trial-table">
+					<thead>
 						<tr>
-							<td style="padding:12px;">
-								<a href="<?php echo esc_url( get_edit_post_link( $row['id'] ) ); ?>" style="font-weight:600;">
-									<?php echo esc_html( get_the_title( $row['id'] ) ); ?>
-								</a>
-							</td>
-							<td style="padding:12px;">
-								<?php echo esc_html( get_the_author_meta( 'display_name', get_post_field( 'post_author', $row['id'] ) ) ); ?>
-							</td>
-							<td style="padding:12px;">
-								<span style="display:inline-block; background:<?php echo esc_attr( $phase_bg ); ?>; color:<?php echo esc_attr( $phase_color ); ?>; border-radius:20px; padding:4px 12px; font-size:12px; font-weight:600; white-space:nowrap;">
-									<?php echo esc_html( $row['phase_label'] ); ?>
-								</span>
-							</td>
-							<td style="padding:12px;">
-								<span style="color:<?php echo esc_attr( $days_color ); ?>; font-weight:700; font-size:14px;">
-									<?php echo esc_html( $row['days_remaining'] ); ?>
-								</span>
-								<span style="color:#787c82;">
-									<?php echo 1 === $days ? esc_html__( 'day', 'listingpro' ) : esc_html__( 'days', 'listingpro' ); ?>
-								</span>
-							</td>
-							<td style="padding:12px; color:#50575e;"><?php echo esc_html( $row['started_date'] ); ?></td>
-							<td style="padding:12px;">
-								<div style="display:flex; align-items:center; gap:4px;">
-									<form method="post" style="display:flex; align-items:center; gap:4px;">
-										<?php wp_nonce_field( 'ip_trial_admin_action_' . $row['id'], 'ip_trial_admin_nonce' ); ?>
-										<input type="hidden" name="ip_trial_listing_id" value="<?php echo esc_attr( $row['id'] ); ?>">
-										<input type="hidden" name="ip_trial_phase" value="<?php echo esc_attr( $row['phase'] ); ?>">
-										<input
-											type="number"
-											name="ip_trial_extend_days"
-											value="7"
-											min="1"
-											style="width:48px; padding:2px 4px;"
-											aria-label="<?php esc_attr_e( 'Number of days to extend', 'listingpro' ); ?>"
-										>
-										<button
-											type="submit"
-											name="ip_trial_action"
-											value="extend"
-											class="button button-secondary"
-											style="padding:0 6px; line-height:28px; height:30px;"
-											title="<?php esc_attr_e( 'Extend', 'listingpro' ); ?>"
-											aria-label="<?php esc_attr_e( 'Extend by the number of days entered', 'listingpro' ); ?>"
-										>
-											<span class="dashicons dashicons-plus-alt2" style="line-height:28px;"></span>
-										</button>
-									</form>
-									<form method="post" onsubmit="return confirm('<?php echo esc_js( __( 'End this now? This cannot be undone.', 'listingpro' ) ); ?>');">
-										<?php wp_nonce_field( 'ip_trial_admin_action_' . $row['id'], 'ip_trial_admin_nonce' ); ?>
-										<input type="hidden" name="ip_trial_listing_id" value="<?php echo esc_attr( $row['id'] ); ?>">
-										<input type="hidden" name="ip_trial_phase" value="<?php echo esc_attr( $row['phase'] ); ?>">
-										<button
-											type="submit"
-											name="ip_trial_action"
-											value="end"
-											class="button button-secondary"
-											style="padding:0 6px; height:30px; color:#c62828; border-color:#c62828;"
-											title="<?php esc_attr_e( 'End Now', 'listingpro' ); ?>"
-											aria-label="<?php esc_attr_e( 'End this trial now', 'listingpro' ); ?>"
-										>
-											<span class="dashicons dashicons-dismiss" style="line-height:28px;"></span>
-										</button>
-									</form>
-								</div>
-							</td>
+							<th><?php esc_html_e( 'Listing', 'listingpro' ); ?></th>
+							<th><?php esc_html_e( 'Instructor', 'listingpro' ); ?></th>
+							<th><?php esc_html_e( 'Phase', 'listingpro' ); ?></th>
+							<th><?php esc_html_e( 'Days Remaining', 'listingpro' ); ?></th>
+							<th><?php esc_html_e( 'Started', 'listingpro' ); ?></th>
+							<th style="width:170px;"><?php esc_html_e( 'Actions', 'listingpro' ); ?></th>
 						</tr>
-					<?php endforeach; ?>
-				</tbody>
-			</table>
+					</thead>
+					<tbody>
+						<?php foreach ( $page_trials as $row ) : ?>
+							<?php
+							$is_free_phase = ( 'free' === $row['phase'] );
+							$phase_bg      = $is_free_phase ? '#f0f0f1' : '#eef1ff';
+							$phase_color   = $is_free_phase ? '#50575e' : '#3538cd';
+
+							$days = (int) $row['days_remaining'];
+							if ( $days <= 3 ) {
+								$days_color = '#c62828';
+							} elseif ( $days <= 7 ) {
+								$days_color = '#b26a00';
+							} else {
+								$days_color = '#2e7d32';
+							}
+							?>
+							<tr>
+								<td>
+									<a href="<?php echo esc_url( get_edit_post_link( $row['id'] ) ); ?>" class="ip-listing-link">
+										<?php echo esc_html( get_the_title( $row['id'] ) ); ?>
+									</a>
+								</td>
+								<td class="ip-instructor">
+									<?php echo esc_html( get_the_author_meta( 'display_name', get_post_field( 'post_author', $row['id'] ) ) ); ?>
+								</td>
+								<td>
+									<span class="ip-badge" style="background:<?php echo esc_attr( $phase_bg ); ?>; color:<?php echo esc_attr( $phase_color ); ?>;">
+										<span class="ip-badge-dot" style="background:<?php echo esc_attr( $phase_color ); ?>;"></span>
+										<?php echo esc_html( $row['phase_label'] ); ?>
+									</span>
+								</td>
+								<td>
+									<span class="ip-days-number" style="color:<?php echo esc_attr( $days_color ); ?>;"><?php echo esc_html( $row['days_remaining'] ); ?></span>
+									<span class="ip-days-unit"><?php echo 1 === $days ? esc_html__( 'day', 'listingpro' ) : esc_html__( 'days', 'listingpro' ); ?></span>
+								</td>
+								<td class="ip-started"><?php echo esc_html( $row['started_date'] ); ?></td>
+								<td>
+									<div class="ip-actions">
+										<form method="post" style="display:flex; align-items:center; gap:6px;">
+											<?php wp_nonce_field( 'ip_trial_admin_action_' . $row['id'], 'ip_trial_admin_nonce' ); ?>
+											<input type="hidden" name="ip_trial_listing_id" value="<?php echo esc_attr( $row['id'] ); ?>">
+											<input type="hidden" name="ip_trial_phase" value="<?php echo esc_attr( $row['phase'] ); ?>">
+											<input
+												type="number"
+												name="ip_trial_extend_days"
+												value="7"
+												min="1"
+												class="ip-days-input"
+												aria-label="<?php esc_attr_e( 'Number of days to extend', 'listingpro' ); ?>"
+											>
+											<button
+												type="submit"
+												name="ip_trial_action"
+												value="extend"
+												class="ip-icon-btn ip-icon-btn-extend"
+												title="<?php esc_attr_e( 'Extend', 'listingpro' ); ?>"
+												aria-label="<?php esc_attr_e( 'Extend by the number of days entered', 'listingpro' ); ?>"
+											>
+												<span class="dashicons dashicons-plus-alt2" aria-hidden="true"></span>
+											</button>
+										</form>
+										<form method="post" onsubmit="return confirm('<?php echo esc_js( __( 'End this now? This cannot be undone.', 'listingpro' ) ); ?>');">
+											<?php wp_nonce_field( 'ip_trial_admin_action_' . $row['id'], 'ip_trial_admin_nonce' ); ?>
+											<input type="hidden" name="ip_trial_listing_id" value="<?php echo esc_attr( $row['id'] ); ?>">
+											<input type="hidden" name="ip_trial_phase" value="<?php echo esc_attr( $row['phase'] ); ?>">
+											<button
+												type="submit"
+												name="ip_trial_action"
+												value="end"
+												class="ip-icon-btn ip-icon-btn-end"
+												title="<?php esc_attr_e( 'End Now', 'listingpro' ); ?>"
+												aria-label="<?php esc_attr_e( 'End this trial now', 'listingpro' ); ?>"
+											>
+												<span class="dashicons dashicons-dismiss" aria-hidden="true"></span>
+											</button>
+										</form>
+									</div>
+								</td>
+							</tr>
+						<?php endforeach; ?>
+					</tbody>
+				</table>
+			</div>
 
 			<?php if ( $total_pages > 1 ) : ?>
-				<div class="tablenav" style="margin-top:12px;">
+				<div class="tablenav ip-trial-tablenav">
 					<div class="tablenav-pages">
 						<span class="displaying-num">
 							<?php
