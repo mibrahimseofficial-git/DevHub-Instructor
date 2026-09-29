@@ -9,7 +9,7 @@
  * real countdown shows in the admin "Expire After" column and the
  * front-end dashboard (via a small child-theme template override —
  * see child-theme/templates/dashboard/listings.php in this repo).
- * Version: 1.3.0
+ * Version: 1.9.0
  *
  * DESIGN NOTES — read before changing anything
  * ---------------------------------------------
@@ -117,7 +117,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 define( 'IP_TRIAL_DAYS', 30 );
-define( 'IP_TRIAL_REMINDER_DAYS_BEFORE', 3 ); // Send the "ending soon" email this many days before expiry.
+define( 'IP_TRIAL_REMINDER_DAYS_BEFORE', 7 ); // Send the "ending soon" email this many days before expiry.
 define( 'IP_TRIAL_USER_META', '_ip_trial_used' ); // User meta: set once the user has ever been granted a trial.
 define( 'IP_TRIAL_FREE_GRACE_DAYS', 30 ); // How long a downgraded Free listing stays live before it expires (Phase 2).
 define( 'IP_TRIAL_FREE_REMINDER_DAYS_BEFORE', 3 ); // Send the "listing expiring soon" email this many days before that.
@@ -219,7 +219,13 @@ function ip_trial_days_remaining_in_trial( $listing_id ) {
 	}
 	$now          = current_time( 'timestamp' ); // phpcs:ignore WordPress.DateTime.CurrentTimeTimestamp
 	$days_elapsed = floor( ( $now - $start ) / DAY_IN_SECONDS );
-	return max( 0, IP_TRIAL_DAYS - $days_elapsed );
+	// '_ip_trial_extension_days' is added to by the admin panel's "Extend"
+	// action. Kept as a separate, cumulative value rather than moving
+	// '_ip_trial_start' itself, so the real start date stays an honest
+	// record and every extension is independently auditable.
+	$extension    = (int) get_post_meta( $listing_id, '_ip_trial_extension_days', true );
+	$total_days   = IP_TRIAL_DAYS + $extension;
+	return max( 0, $total_days - $days_elapsed );
 }
 
 /**
@@ -236,7 +242,9 @@ function ip_trial_days_remaining_in_free_grace( $listing_id ) {
 	}
 	$now          = current_time( 'timestamp' ); // phpcs:ignore WordPress.DateTime.CurrentTimeTimestamp
 	$days_elapsed = floor( ( $now - $ended ) / DAY_IN_SECONDS );
-	return max( 0, IP_TRIAL_FREE_GRACE_DAYS - $days_elapsed );
+	$extension    = (int) get_post_meta( $listing_id, '_ip_trial_free_extension_days', true );
+	$total_days   = IP_TRIAL_FREE_GRACE_DAYS + $extension;
+	return max( 0, $total_days - $days_elapsed );
 }
 
 /**
@@ -646,6 +654,88 @@ function ip_trial_badge_shortcode( $atts ) {
  * @param string $type            'start' | 'reminder' | 'ended'
  * @param int    $days_remaining  Only used for 'reminder'.
  */
+/**
+ * Wraps trial email body content in Instructor Place's branded HTML email
+ * shell -- logo header, footer with quick links / contact / social —
+ * matching the client's own "Welcome to Instructor Place" registration
+ * email template exactly (same colors, same structure), so every
+ * automated trial email shares one consistent visual identity instead of
+ * looking like a separate, unbranded system.
+ *
+ * @param string $heading       Main heading (may include an emoji; not escaped, this plugin's own text only).
+ * @param string $subheading    Small line under the heading.
+ * @param string $intro_html    Intro paragraph(s) inside the light-gray band.
+ * @param string $sections_html Zero or more ip_trial_email_section() blocks.
+ * @param string $cta_text      Optional CTA button label.
+ * @param string $cta_url       Optional CTA button URL.
+ * @return string
+ */
+function ip_trial_email_wrapper( $heading, $subheading, $intro_html, $sections_html = '', $cta_text = '', $cta_url = '' ) {
+	$logo_url      = 'https://instructorplace.co.uk/wp-content/uploads/2026/05/Link-Instructor-Place-home-%E2%86%92-Instructor-Place-logo.png';
+	$support_email = 'Abdul@instructorplace.co.uk'; // Same address configured in Appearance -> ListingPro Options -> Email Management.
+	$year          = gmdate( 'Y' );
+
+	$cta_html = '';
+	if ( $cta_text && $cta_url ) {
+		$cta_html = '<div style="text-align: center;"><a style="display: inline-block; background: #FF9933; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; margin: 15px 0; font-weight: 600; font-size: 14px;" href="' . esc_url( $cta_url ) . '">' . esc_html( $cta_text ) . '</a></div>';
+	}
+
+	// A single outer wrapper constrains the WHOLE email (header through
+	// footer) to 600px. The client's own pasted template had the footer as
+	// a separate sibling div with no width constraint of its own, which is
+	// exactly why its footer rendered full-bleed width in some clients
+	// instead of matching the 600px content above it — fixed here by
+	// nesting everything inside one outer container that only closes at
+	// the very end.
+	return '<div style="max-width: 600px; margin: 0 auto; background: #ffffff; font-family: -apple-system, BlinkMacSystemFont, \'Segoe UI\', Roboto, sans-serif; line-height: 1.6; color: #333;">'
+		. '<div style="background: #ffffff; color: #113274; padding: 20px 20px; text-align: center; border-radius: 8px 8px 0 0;">'
+		. '<center><img style="height: 50px; margin-bottom: 0px; display: block;" src="' . esc_url( $logo_url ) . '" alt="Instructor Place" /></center>'
+		. '<h1 style="margin: 0; font-size: 24px; font-weight: 600; color: #113274;">' . $heading . '</h1>'
+		. '<p style="margin: 8px 0 0 0; font-size: 14px; color: #113274;">' . esc_html( $subheading ) . '</p>'
+		. '</div>'
+		. '<div style="background: #F5F6F9; padding: 30px 20px;">' . $intro_html . '</div>'
+		. $sections_html
+		. $cta_html
+		. '<p style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #e5e7eb; font-size: 14px; line-height: 1.8; color: #374151;">Questions or need assistance? <a style="color: #113274;" href="mailto:' . esc_attr( $support_email ) . '">Contact our support team</a> or visit our <a style="color: #113274;" href="https://instructorplace.co.uk/contact/">contact page</a>.</p>'
+		. '<div style="background: #113274; color: white; padding: 30px 20px; border-radius: 0 0 8px 8px;">'
+		. '<table style="width: 100%; margin-bottom: 20px;"><tbody><tr>'
+		. '<td style="width: 50%; padding-right: 10px; font-size: 13px;">'
+		. '<h4 style="margin: 0 0 10px 0; color: #ff9933;">Quick Links</h4>'
+		. '<p style="margin: 5px 0;"><a style="color: white; text-decoration: none;" href="https://instructorplace.co.uk/find-instructor/">Browse Directory</a></p>'
+		. '<p style="margin: 5px 0;"><a style="color: white; text-decoration: none;" href="https://instructorplace.co.uk/submit-listing/">List a Service</a></p>'
+		. '<p style="margin: 5px 0;"><a style="color: white; text-decoration: none;" href="https://instructorplace.co.uk/about/">About Us</a></p>'
+		. '</td>'
+		. '<td style="width: 50%; padding-left: 10px; font-size: 13px;">'
+		. '<h4 style="margin: 0 0 10px 0; color: #ff9933;">Contact Us</h4>'
+		. '<p style="margin: 5px 0;"><a style="color: white; text-decoration: none;" href="tel:+447958057298">📞 07958057298</a></p>'
+		. '<p style="margin: 5px 0;"><a style="color: white; text-decoration: none;" href="mailto:' . esc_attr( $support_email ) . '">✉️ ' . esc_html( $support_email ) . '</a></p>'
+		. '<p style="margin: 5px 0;"><a style="color: white; text-decoration: none;" href="https://instructorplace.co.uk/contact/">📧 Contact Form</a></p>'
+		. '</td>'
+		. '</tr></tbody></table>'
+		. '<div style="border-top: 1px solid rgba(255, 255, 255, 0.2); padding-top: 15px; text-align: center; font-size: 12px; opacity: 0.9;">'
+		. '<p style="margin: 0 0 8px 0;">Instructor Place — Bristol\'s trusted community directory</p>'
+		. '<p style="margin: 0 0 10px 0;"><a style="color: #ff9933; text-decoration: none; margin: 0 8px;" href="https://www.facebook.com/people/Instructor-Place/61589993023782/">Facebook</a> | <a style="color: #ff9933; text-decoration: none; margin: 0 8px;" href="https://www.instagram.com/instructorplace/">Instagram</a> | <a style="color: #ff9933; text-decoration: none; margin: 0 8px;" href="https://instructorplace.co.uk/">Website</a></p>'
+		. '<p style="margin: 8px 0 0 0; color: rgba(255, 255, 255, 0.7);">© ' . esc_html( $year ) . ' Instructor Place. All rights reserved. | <a style="color: rgba(255, 255, 255, 0.7);" href="https://instructorplace.co.uk/terms-and-conditions/">Terms &amp; Conditions</a></p>'
+		. '</div>'
+		. '</div>'
+		. '</div>';
+}
+
+/**
+ * One highlighted info-box block, matching the template's own pattern:
+ * an h3 heading, then a white box with the orange left-border accent.
+ *
+ * @param string $heading Section heading (emoji + text, not escaped -- this plugin's own text only).
+ * @param string $box_html Content inside the highlighted box.
+ * @return string
+ */
+function ip_trial_email_section( $heading, $box_html ) {
+	return '<div style="margin: 20px 0;">'
+		. '<h3 style="color: #113274; margin: 0 0 12px 0; font-size: 16px;">' . $heading . '</h3>'
+		. '<div style="background: white; padding: 15px; border-left: 4px solid #FF9933; margin: 15px 0; border-radius: 4px;">' . $box_html . '</div>'
+		. '</div>';
+}
+
 function ip_trial_send_email( $listing_id, $type, $days_remaining = 0 ) {
 	$author_id = get_post_field( 'post_author', $listing_id );
 	$user      = get_userdata( $author_id );
@@ -656,6 +746,8 @@ function ip_trial_send_email( $listing_id, $type, $days_remaining = 0 ) {
 	$site_name     = get_bloginfo( 'name' );
 	$listing_title = get_the_title( $listing_id );
 	$listing_url   = get_permalink( $listing_id );
+	$display_name  = esc_html( $user->display_name );
+	$title_esc     = esc_html( $listing_title );
 
 	// Resolve the dashboard the same way ListingPro's own templates do, so the
 	// link keeps working if the slug changes or the site moves.
@@ -667,49 +759,117 @@ function ip_trial_send_email( $listing_id, $type, $days_remaining = 0 ) {
 	switch ( $type ) {
 		case 'start':
 			$subject = sprintf( '[%s] Your free %d-day Premium trial has started', $site_name, IP_TRIAL_DAYS );
-			$body    = "<p>Hi {$user->display_name},</p>"
-				. "<p>Welcome to {$site_name}! Your listing <strong>{$listing_title}</strong> is now live with a free {IP_TRIAL_DAYS}-day Premium trial — that means top placement in search results and your full profile unlocked (contact details, gallery, map, and more).</p>"
-				. "<p><a href=\"{$listing_url}\">View your listing</a></p>"
-				. "<p>If you'd like to keep Premium visibility after the trial, you can upgrade any time from your <a href=\"{$dashboard_url}\">dashboard</a>. Otherwise your listing will automatically switch to a free Basic listing when the trial ends — it stays live either way.</p>"
-				. "<p>Thanks,<br>{$site_name}</p>";
-			$body    = str_replace( '{IP_TRIAL_DAYS}', IP_TRIAL_DAYS, $body );
+
+			$intro = '<p style="font-size: 14px; line-height: 1.8; color: #374151;">Hi ' . $display_name . ',</p>'
+				. '<p style="font-size: 14px; line-height: 1.8; color: #374151;">Welcome to Instructor Place! Your listing <strong>' . $title_esc . '</strong> is now live with a free ' . (int) IP_TRIAL_DAYS . '-day Premium trial.</p>';
+
+			$sections = ip_trial_email_section(
+				'📝 What\'s Included',
+				'<div style="margin: 10px 0; font-size: 14px;"><strong>✓</strong> Top placement in search results</div>'
+					. '<div style="margin: 10px 0; font-size: 14px;"><strong>✓</strong> Full profile unlocked — gallery, contact details, map, and more</div>'
+					. '<div style="margin: 10px 0; font-size: 14px;"><strong>✓</strong> Increased visibility to learners searching in your area</div>'
+			) . ip_trial_email_section(
+				'💡 Before It Ends',
+				'<p style="margin: 0; font-size: 14px;">If you\'d like to keep Premium visibility after the trial, upgrade any time from your <a style="color:#113274;" href="' . esc_url( $dashboard_url ) . '">dashboard</a>. Otherwise your listing automatically switches to a free Basic listing when the trial ends — it stays live either way.</p>'
+			);
+
+			$body = ip_trial_email_wrapper(
+				'Your Free Trial Has Started! 🎉',
+				IP_TRIAL_DAYS . ' days of Premium visibility, on us',
+				$intro,
+				$sections,
+				'View Your Listing',
+				$listing_url
+			);
 			break;
 
 		case 'reminder':
 			$day_word = ( 1 === (int) $days_remaining ) ? 'day' : 'days';
 			$subject  = sprintf( '[%s] Your Premium trial ends in %d %s', $site_name, $days_remaining, $day_word );
-			$body     = "<p>Hi {$user->display_name},</p>"
-				. "<p>Just a heads up — your free Premium trial for <strong>{$listing_title}</strong> ends in <strong>{$days_remaining} {$day_word}</strong>.</p>"
-				. "<p>After that, your listing switches to a free Basic listing: it stays live, but loses top placement and some profile features.</p>"
-				. "<p>To keep Premium visibility, upgrade from your <a href=\"{$dashboard_url}\">dashboard</a> before the trial ends.</p>"
-				. "<p>Thanks,<br>{$site_name}</p>";
+
+			$intro = '<p style="font-size: 14px; line-height: 1.8; color: #374151;">Hi ' . $display_name . ',</p>'
+				. '<p style="font-size: 14px; line-height: 1.8; color: #374151;">Just a heads up — your free Premium trial for <strong>' . $title_esc . '</strong> ends in <strong>' . (int) $days_remaining . ' ' . esc_html( $day_word ) . '</strong>.</p>';
+
+			$sections = ip_trial_email_section(
+				'⏳ What Happens Next',
+				'<p style="margin: 0; font-size: 14px;">After your trial ends, your listing switches to a free Basic listing: it stays live, but loses top placement and some profile features.</p>'
+			) . ip_trial_email_section(
+				'💡 Keep Your Premium Visibility',
+				'<p style="margin: 0; font-size: 14px;">Upgrade from your <a style="color:#113274;" href="' . esc_url( $dashboard_url ) . '">dashboard</a> before the trial ends to keep everything as-is.</p>'
+			);
+
+			$body = ip_trial_email_wrapper(
+				'Your Trial Ends in ' . (int) $days_remaining . ' ' . esc_html( ucfirst( $day_word ) ) . ' ⏳',
+				'Don\'t lose your Premium visibility',
+				$intro,
+				$sections,
+				'Upgrade Now',
+				$dashboard_url
+			);
 			break;
 
 		case 'ended':
 			$subject = sprintf( '[%s] Your Premium trial has ended', $site_name );
-			$body    = "<p>Hi {$user->display_name},</p>"
-				. "<p>Your free Premium trial for <strong>{$listing_title}</strong> has ended, and your listing is now on the free Basic plan. Your listing is still live and searchable.</p>"
-				. "<p>You can upgrade to Premium or Standard at any time from your <a href=\"{$dashboard_url}\">dashboard</a> to restore top placement and full profile features.</p>"
-				. "<p><a href=\"{$listing_url}\">View your listing</a></p>"
-				. "<p>Thanks,<br>{$site_name}</p>";
+
+			$intro = '<p style="font-size: 14px; line-height: 1.8; color: #374151;">Hi ' . $display_name . ',</p>'
+				. '<p style="font-size: 14px; line-height: 1.8; color: #374151;">Your free Premium trial for <strong>' . $title_esc . '</strong> has ended, and your listing is now on the free Basic plan. Your listing is still live and searchable.</p>';
+
+			$sections = ip_trial_email_section(
+				'🚀 Want Premium Back?',
+				'<p style="margin: 0; font-size: 14px;">You can upgrade to Premium or Standard at any time from your <a style="color:#113274;" href="' . esc_url( $dashboard_url ) . '">dashboard</a> to restore top placement and full profile features.</p>'
+			);
+
+			$body = ip_trial_email_wrapper(
+				'Your Trial Has Ended',
+				'Your listing is now on the Free plan',
+				$intro,
+				$sections,
+				'View Your Listing',
+				$listing_url
+			);
 			break;
 
 		case 'free_reminder':
 			$day_word = ( 1 === (int) $days_remaining ) ? 'day' : 'days';
 			$subject  = sprintf( '[%s] Your free listing expires in %d %s', $site_name, $days_remaining, $day_word );
-			$body     = "<p>Hi {$user->display_name},</p>"
-				. "<p>Your listing <strong>{$listing_title}</strong> is currently live on our free Basic plan, and that listing period ends in <strong>{$days_remaining} {$day_word}</strong>.</p>"
-				. "<p>After that, your listing will stop appearing in search until you renew or upgrade it from your <a href=\"{$dashboard_url}\">dashboard</a>.</p>"
-				. "<p><a href=\"{$listing_url}\">View your listing</a></p>"
-				. "<p>Thanks,<br>{$site_name}</p>";
+
+			$intro = '<p style="font-size: 14px; line-height: 1.8; color: #374151;">Hi ' . $display_name . ',</p>'
+				. '<p style="font-size: 14px; line-height: 1.8; color: #374151;">Your listing <strong>' . $title_esc . '</strong> is currently live on our free Basic plan, and that listing period ends in <strong>' . (int) $days_remaining . ' ' . esc_html( $day_word ) . '</strong>.</p>';
+
+			$sections = ip_trial_email_section(
+				'⏳ What Happens Next',
+				'<p style="margin: 0; font-size: 14px;">After that, your listing will stop appearing in search until you renew or upgrade it from your <a style="color:#113274;" href="' . esc_url( $dashboard_url ) . '">dashboard</a>.</p>'
+			);
+
+			$body = ip_trial_email_wrapper(
+				'Your Listing Expires in ' . (int) $days_remaining . ' ' . esc_html( ucfirst( $day_word ) ),
+				'Renew to stay visible',
+				$intro,
+				$sections,
+				'Go to Dashboard',
+				$dashboard_url
+			);
 			break;
 
 		case 'free_expired':
 			$subject = sprintf( '[%s] Your listing has expired', $site_name );
-			$body    = "<p>Hi {$user->display_name},</p>"
-				. "<p>Your listing <strong>{$listing_title}</strong> has expired and is no longer visible in search results.</p>"
-				. "<p>You can renew or upgrade it any time from your <a href=\"{$dashboard_url}\">dashboard</a>.</p>"
-				. "<p>Thanks,<br>{$site_name}</p>";
+
+			$intro = '<p style="font-size: 14px; line-height: 1.8; color: #374151;">Hi ' . $display_name . ',</p>'
+				. '<p style="font-size: 14px; line-height: 1.8; color: #374151;">Your listing <strong>' . $title_esc . '</strong> has expired and is no longer visible in search results.</p>';
+
+			$sections = ip_trial_email_section(
+				'🚀 Bring It Back',
+				'<p style="margin: 0; font-size: 14px;">You can renew or upgrade it any time from your <a style="color:#113274;" href="' . esc_url( $dashboard_url ) . '">dashboard</a>.</p>'
+			);
+
+			$body = ip_trial_email_wrapper(
+				'Your Listing Has Expired',
+				'Renew any time to get back online',
+				$intro,
+				$sections,
+				'Go to Dashboard',
+				$dashboard_url
+			);
 			break;
 
 		default:
@@ -852,4 +1012,486 @@ function ip_trial_dashboard_expiry_override( $listingpro_value, $listing_id ) {
 
 	// Not a trial-related listing — leave ListingPro's own value exactly as it was.
 	return $listingpro_value;
+}
+
+/* =====================================================================
+ * 11. ADMIN PANEL — view, extend, or end trials
+ * ===================================================================== */
+
+/**
+ * A dedicated wp-admin page listing every listing currently in either
+ * phase of the trial lifecycle (Premium trial, or the post-trial Free
+ * grace period), with per-row actions to extend the remaining time or end
+ * that phase immediately.
+ *
+ * Restricted to 'edit_others_posts' — the same capability level ListingPro
+ * itself expects of anyone managing listings site-wide (typically Editor
+ * or Admin), not something an instructor's own account has.
+ *
+ * "End Now" reuses the exact same ip_trial_downgrade() /
+ * ip_trial_expire_free_listing() functions the daily cron calls — so
+ * manually ending a Premium trial still sends the normal 'ended'
+ * (downgrade confirmation) email, and manually ending a Free grace period
+ * still sends the normal 'free_expired' email. No separate manual-action
+ * email variant was needed.
+ *
+ * "Extend" adds days via '_ip_trial_extension_days' /
+ * '_ip_trial_free_extension_days' rather than moving the original start
+ * timestamp — see ip_trial_days_remaining_in_trial() /
+ * ip_trial_days_remaining_in_free_grace() above. It also resets that
+ * phase's own reminder-sent flag, so the 7-day reminder can correctly
+ * fire again once the extended listing approaches its new, later expiry.
+ */
+add_action( 'admin_menu', 'ip_trial_register_admin_page' );
+function ip_trial_register_admin_page() {
+	add_submenu_page(
+		'edit.php?post_type=listing',
+		esc_html__( 'Trial Listings', 'listingpro' ),
+		esc_html__( 'Trial Listings', 'listingpro' ),
+		'edit_others_posts',
+		'ip-trial-listings',
+		'ip_trial_render_admin_page'
+	);
+}
+
+/**
+ * Process an Extend or End submission from the admin page, if present.
+ *
+ * @return string A one-line success message to display, or '' if no
+ *                action was submitted this request.
+ */
+function ip_trial_handle_admin_actions() {
+	if ( ! isset( $_POST['ip_trial_action'], $_POST['ip_trial_listing_id'], $_POST['ip_trial_phase'] ) ) {
+		return '';
+	}
+
+	$listing_id = (int) $_POST['ip_trial_listing_id'];
+
+	check_admin_referer( 'ip_trial_admin_action_' . $listing_id, 'ip_trial_admin_nonce' );
+
+	if ( ! current_user_can( 'edit_others_posts' ) ) {
+		wp_die( esc_html__( 'You do not have permission to do that.', 'listingpro' ) );
+	}
+
+	$action = sanitize_key( wp_unslash( $_POST['ip_trial_action'] ) );
+	$phase  = sanitize_key( wp_unslash( $_POST['ip_trial_phase'] ) );
+
+	if ( ! in_array( $phase, array( 'trial', 'free' ), true ) ) {
+		return '';
+	}
+
+	if ( 'extend' === $action ) {
+		$days = isset( $_POST['ip_trial_extend_days'] ) ? max( 1, (int) $_POST['ip_trial_extend_days'] ) : 7;
+
+		if ( 'trial' === $phase ) {
+			$current = (int) get_post_meta( $listing_id, '_ip_trial_extension_days', true );
+			update_post_meta( $listing_id, '_ip_trial_extension_days', $current + $days );
+			update_post_meta( $listing_id, '_ip_trial_reminder_sent', 'no' );
+		} else {
+			$current = (int) get_post_meta( $listing_id, '_ip_trial_free_extension_days', true );
+			update_post_meta( $listing_id, '_ip_trial_free_extension_days', $current + $days );
+			update_post_meta( $listing_id, '_ip_trial_free_reminder_sent', 'no' );
+		}
+
+		/* translators: 1: number of days added, 2: listing title. */
+		return sprintf( esc_html__( 'Extended by %1$d day(s) for "%2$s".', 'listingpro' ), $days, get_the_title( $listing_id ) );
+	}
+
+	if ( 'end' === $action ) {
+		if ( 'trial' === $phase ) {
+			ip_trial_downgrade( $listing_id );
+		} else {
+			ip_trial_expire_free_listing( $listing_id );
+		}
+
+		/* translators: %s: listing title. */
+		return sprintf( esc_html__( 'Ended the trial for "%s".', 'listingpro' ), get_the_title( $listing_id ) );
+	}
+
+	return '';
+}
+
+/**
+ * Every listing currently in Phase 1 (active Premium trial) or Phase 2
+ * (downgraded to Free, still inside the grace period — post_status is
+ * still 'publish', so an already-expired listing is naturally excluded).
+ *
+ * @return array[] Each row: id, phase ('trial'|'free'), phase_label,
+ *                 days_remaining, started_date.
+ */
+function ip_trial_get_all_trial_listings() {
+	$rows = array();
+
+	$phase1_ids = get_posts( array(
+		'post_type'      => 'listing',
+		'post_status'    => 'publish',
+		'posts_per_page' => -1,
+		'fields'         => 'ids',
+		'meta_query'     => array(
+			array(
+				'key'   => '_ip_trial_active',
+				'value' => 'yes',
+			),
+		),
+	) );
+
+	foreach ( $phase1_ids as $id ) {
+		$start  = (int) get_post_meta( $id, '_ip_trial_start', true );
+		$rows[] = array(
+			'id'             => $id,
+			'phase'          => 'trial',
+			'phase_label'    => esc_html__( 'Premium Trial', 'listingpro' ),
+			'days_remaining' => ip_trial_days_remaining_in_trial( $id ),
+			'started_date'   => $start ? date_i18n( get_option( 'date_format' ), $start ) : '',
+		);
+	}
+
+	$phase2_ids = get_posts( array(
+		'post_type'      => 'listing',
+		'post_status'    => 'publish',
+		'posts_per_page' => -1,
+		'fields'         => 'ids',
+		'meta_query'     => array(
+			array(
+				'key'     => '_ip_trial_ended',
+				'compare' => 'EXISTS',
+			),
+		),
+	) );
+
+	foreach ( $phase2_ids as $id ) {
+		$ended  = (int) get_post_meta( $id, '_ip_trial_ended', true );
+		$rows[] = array(
+			'id'             => $id,
+			'phase'          => 'free',
+			'phase_label'    => esc_html__( 'Free Grace Period', 'listingpro' ),
+			'days_remaining' => ip_trial_days_remaining_in_free_grace( $id ),
+			'started_date'   => $ended ? date_i18n( get_option( 'date_format' ), $ended ) : '',
+		);
+	}
+
+	return $rows;
+}
+
+function ip_trial_render_admin_page() {
+	if ( ! current_user_can( 'edit_others_posts' ) ) {
+		wp_die( esc_html__( 'You do not have permission to access this page.', 'listingpro' ) );
+	}
+
+	$notice     = ip_trial_handle_admin_actions();
+	$all_trials = ip_trial_get_all_trial_listings();
+
+	// Search — filters by listing title or instructor display name.
+	// Plain substring match over the already-fetched array rather than a
+	// second DB query: this list is realistically dozens to a few hundred
+	// rows, never the scale where that would matter.
+	$search = isset( $_GET['s'] ) ? sanitize_text_field( wp_unslash( $_GET['s'] ) ) : '';
+	$trials = $all_trials;
+	if ( '' !== $search ) {
+		$needle = function_exists( 'mb_strtolower' ) ? mb_strtolower( $search ) : strtolower( $search );
+		$trials = array_filter( $all_trials, function ( $row ) use ( $needle ) {
+			$title      = get_the_title( $row['id'] );
+			$instructor = get_the_author_meta( 'display_name', get_post_field( 'post_author', $row['id'] ) );
+			$haystack   = function_exists( 'mb_strtolower' ) ? mb_strtolower( $title . ' ' . $instructor ) : strtolower( $title . ' ' . $instructor );
+			return false !== strpos( $haystack, $needle );
+		} );
+	}
+	$trials = array_values( $trials );
+
+	// Pagination over the (possibly search-filtered) result set.
+	$per_page     = 20;
+	$total_items  = count( $trials );
+	$total_pages  = max( 1, (int) ceil( $total_items / $per_page ) );
+	$current_page = isset( $_GET['paged'] ) ? max( 1, (int) $_GET['paged'] ) : 1;
+	$current_page = min( $current_page, $total_pages );
+	$page_trials  = array_slice( $trials, ( $current_page - 1 ) * $per_page, $per_page );
+
+	// Summary counts always reflect the FULL set, not the search-filtered
+	// or paginated one, so the at-a-glance numbers don't shift just
+	// because someone typed into the search box.
+	$count_trial    = 0;
+	$count_free     = 0;
+	$count_expiring = 0;
+	foreach ( $all_trials as $t ) {
+		if ( 'trial' === $t['phase'] ) {
+			++$count_trial;
+		} else {
+			++$count_free;
+		}
+		if ( (int) $t['days_remaining'] <= 3 ) {
+			++$count_expiring;
+		}
+	}
+	?>
+	<div class="wrap ip-trial-admin">
+		<style>
+			.ip-trial-admin { max-width: none; }
+			.ip-trial-admin .ip-trial-header {
+				display: flex; align-items: center; justify-content: space-between;
+				flex-wrap: wrap; gap: 16px; margin: 12px 0 24px;
+			}
+			.ip-trial-admin .ip-trial-header h1 {
+				font-size: 23px; font-weight: 600; margin: 0; padding: 0; color: #1d2327;
+			}
+			.ip-trial-admin .ip-trial-search-wrap { position: relative; margin: 0 0 20px; }
+			.ip-trial-admin .ip-trial-search-wrap .dashicons-search {
+				position: absolute; left: 10px; top: 50%; transform: translateY(-50%);
+				color: #9ca3af; font-size: 16px; width: 16px; height: 16px; pointer-events: none;
+			}
+			.ip-trial-admin .ip-trial-search-wrap input[type="search"] {
+				padding: 0 12px 0 32px; height: 36px; width: 280px;
+				border: 1px solid #d1d5db; border-radius: 6px; box-shadow: none;
+			}
+			.ip-trial-admin .ip-trial-search-wrap input[type="search"]:focus {
+				border-color: #3538cd; box-shadow: 0 0 0 1px #3538cd;
+			}
+			.ip-trial-admin .ip-trial-stats {
+				display: flex; gap: 12px; margin-bottom: 24px; flex-wrap: wrap;
+			}
+			.ip-trial-admin .ip-trial-stat-card {
+				background: #fff; border: 1px solid #e5e7eb; border-radius: 8px;
+				padding: 16px 22px; min-width: 160px;
+				box-shadow: 0 1px 2px rgba(16,24,40,0.04);
+			}
+			.ip-trial-admin .ip-trial-stat-number { font-size: 28px; font-weight: 700; line-height: 1.1; }
+			.ip-trial-admin .ip-trial-stat-label {
+				font-size: 11px; color: #6b7280; text-transform: uppercase;
+				letter-spacing: 0.05em; font-weight: 600; margin-top: 6px;
+			}
+			.ip-trial-admin .ip-trial-card {
+				background: #fff; border: 1px solid #e5e7eb; border-radius: 10px;
+				overflow: hidden; box-shadow: 0 1px 3px rgba(16,24,40,0.05);
+			}
+			.ip-trial-admin table.ip-trial-table { border-collapse: collapse; width: 100%; }
+			.ip-trial-admin table.ip-trial-table thead th {
+				background: #f9fafb; color: #6b7280; font-size: 11px; text-align: left;
+				text-transform: uppercase; letter-spacing: 0.05em; font-weight: 700;
+				padding: 14px 16px; border-bottom: 1px solid #e5e7eb;
+			}
+			.ip-trial-admin table.ip-trial-table tbody td {
+				padding: 14px 16px; border-bottom: 1px solid #f1f2f4;
+				font-size: 13px; vertical-align: middle; color: #1d2327;
+			}
+			.ip-trial-admin table.ip-trial-table tbody tr:last-child td { border-bottom: none; }
+			.ip-trial-admin table.ip-trial-table tbody tr:hover { background: #fafbfc; }
+			.ip-trial-admin .ip-listing-link { font-weight: 600; text-decoration: none; }
+			.ip-trial-admin .ip-listing-link:hover { text-decoration: underline; }
+			.ip-trial-admin .ip-instructor { color: #4b5563; }
+			.ip-trial-admin .ip-badge {
+				display: inline-flex; align-items: center; gap: 6px; border-radius: 20px;
+				padding: 5px 12px; font-size: 12px; font-weight: 600; white-space: nowrap;
+			}
+			.ip-trial-admin .ip-badge-dot { width: 6px; height: 6px; border-radius: 50%; flex: none; }
+			.ip-trial-admin .ip-days-number { font-weight: 700; font-size: 14px; }
+			.ip-trial-admin .ip-days-unit { color: #787c82; margin-left: 3px; }
+			.ip-trial-admin .ip-started { color: #6b7280; }
+			.ip-trial-admin .ip-actions { display: flex; align-items: center; gap: 6px; }
+			.ip-trial-admin .ip-days-input {
+				width: 44px; height: 30px; text-align: center; border-radius: 6px;
+				border: 1px solid #d1d5db; padding: 0 4px;
+			}
+			.ip-trial-admin .ip-icon-btn {
+				display: inline-flex; align-items: center; justify-content: center;
+				width: 44px; height: 30px; border-radius: 6px; border: 1px solid #d1d5db;
+				background: #fff; cursor: pointer; padding: 0;
+				transition: background-color 0.15s ease, border-color 0.15s ease;
+			}
+			.ip-trial-admin .ip-icon-btn .dashicons { font-size: 16px; width: 16px; height: 16px; }
+			.ip-trial-admin .ip-icon-btn-extend { color: #3538cd; border-color: #c7d2fe; }
+			.ip-trial-admin .ip-icon-btn-extend:hover { background: #eef1ff; }
+			.ip-trial-admin .ip-icon-btn-end { color: #c62828; border-color: #f3caca; }
+			.ip-trial-admin .ip-icon-btn-end:hover { background: #fdeaea; }
+			.ip-trial-admin .ip-empty-state { text-align: center; padding: 64px 20px; color: #6b7280; }
+			.ip-trial-admin .ip-empty-state .dashicons {
+				font-size: 40px; width: 40px; height: 40px; color: #d1d5db; margin-bottom: 12px; display: block; margin-left: auto; margin-right: auto;
+			}
+			.ip-trial-admin .ip-empty-state p { font-size: 14px; margin: 0; }
+			.ip-trial-admin .tablenav.ip-trial-tablenav { margin-top: 16px; padding: 0; }
+		</style>
+
+		<div class="ip-trial-header">
+			<h1><?php esc_html_e( 'Trial Listings', 'listingpro' ); ?></h1>
+		</div>
+
+		<?php if ( $notice ) : ?>
+			<div class="notice notice-success is-dismissible"><p><?php echo esc_html( $notice ); ?></p></div>
+		<?php endif; ?>
+
+		<div class="ip-trial-stats">
+			<div class="ip-trial-stat-card">
+				<div class="ip-trial-stat-number" style="color:#3538cd;"><?php echo esc_html( $count_trial ); ?></div>
+				<div class="ip-trial-stat-label"><?php esc_html_e( 'Premium Trial', 'listingpro' ); ?></div>
+			</div>
+			<div class="ip-trial-stat-card">
+				<div class="ip-trial-stat-number" style="color:#50575e;"><?php echo esc_html( $count_free ); ?></div>
+				<div class="ip-trial-stat-label"><?php esc_html_e( 'Free Grace Period', 'listingpro' ); ?></div>
+			</div>
+			<div class="ip-trial-stat-card">
+				<div class="ip-trial-stat-number" style="color:#c62828;"><?php echo esc_html( $count_expiring ); ?></div>
+				<div class="ip-trial-stat-label"><?php esc_html_e( 'Expiring in 3 Days or Less', 'listingpro' ); ?></div>
+			</div>
+		</div>
+
+		<form method="get" class="ip-trial-search-wrap">
+			<input type="hidden" name="post_type" value="listing">
+			<input type="hidden" name="page" value="ip-trial-listings">
+			<span class="dashicons dashicons-search" aria-hidden="true"></span>
+			<label class="screen-reader-text" for="ip-trial-search-input">
+				<?php esc_html_e( 'Search listings or instructors', 'listingpro' ); ?>
+			</label>
+			<input
+				type="search"
+				id="ip-trial-search-input"
+				name="s"
+				value="<?php echo esc_attr( $search ); ?>"
+				placeholder="<?php esc_attr_e( 'Search by listing or instructor…', 'listingpro' ); ?>"
+			>
+			<?php if ( '' !== $search ) : ?>
+				<a href="<?php echo esc_url( remove_query_arg( array( 's', 'paged' ) ) ); ?>" class="button-link" style="margin-left:8px; font-size:13px;">
+					<?php esc_html_e( 'Clear', 'listingpro' ); ?>
+				</a>
+			<?php endif; ?>
+		</form>
+
+		<?php if ( empty( $all_trials ) ) : ?>
+			<div class="ip-trial-card">
+				<div class="ip-empty-state">
+					<span class="dashicons dashicons-clock" aria-hidden="true"></span>
+					<p><?php esc_html_e( 'No listings are currently on a trial or in the post-trial Free grace period.', 'listingpro' ); ?></p>
+				</div>
+			</div>
+		<?php elseif ( empty( $page_trials ) ) : ?>
+			<div class="ip-trial-card">
+				<div class="ip-empty-state">
+					<span class="dashicons dashicons-search" aria-hidden="true"></span>
+					<p>
+						<?php
+						/* translators: %s: the search term that matched nothing. */
+						echo esc_html( sprintf( __( 'No listings or instructors match "%s".', 'listingpro' ), $search ) );
+						?>
+					</p>
+				</div>
+			</div>
+		<?php else : ?>
+			<div class="ip-trial-card">
+				<table class="ip-trial-table">
+					<thead>
+						<tr>
+							<th><?php esc_html_e( 'Listing', 'listingpro' ); ?></th>
+							<th><?php esc_html_e( 'Instructor', 'listingpro' ); ?></th>
+							<th><?php esc_html_e( 'Phase', 'listingpro' ); ?></th>
+							<th><?php esc_html_e( 'Days Remaining', 'listingpro' ); ?></th>
+							<th><?php esc_html_e( 'Started', 'listingpro' ); ?></th>
+							<th style="width:170px;"><?php esc_html_e( 'Actions', 'listingpro' ); ?></th>
+						</tr>
+					</thead>
+					<tbody>
+						<?php foreach ( $page_trials as $row ) : ?>
+							<?php
+							$is_free_phase = ( 'free' === $row['phase'] );
+							$phase_bg      = $is_free_phase ? '#f0f0f1' : '#eef1ff';
+							$phase_color   = $is_free_phase ? '#50575e' : '#3538cd';
+
+							$days = (int) $row['days_remaining'];
+							if ( $days <= 3 ) {
+								$days_color = '#c62828';
+							} elseif ( $days <= 7 ) {
+								$days_color = '#b26a00';
+							} else {
+								$days_color = '#2e7d32';
+							}
+							?>
+							<tr>
+								<td>
+									<a href="<?php echo esc_url( get_edit_post_link( $row['id'] ) ); ?>" class="ip-listing-link">
+										<?php echo esc_html( get_the_title( $row['id'] ) ); ?>
+									</a>
+								</td>
+								<td class="ip-instructor">
+									<?php echo esc_html( get_the_author_meta( 'display_name', get_post_field( 'post_author', $row['id'] ) ) ); ?>
+								</td>
+								<td>
+									<span class="ip-badge" style="background:<?php echo esc_attr( $phase_bg ); ?>; color:<?php echo esc_attr( $phase_color ); ?>;">
+										<span class="ip-badge-dot" style="background:<?php echo esc_attr( $phase_color ); ?>;"></span>
+										<?php echo esc_html( $row['phase_label'] ); ?>
+									</span>
+								</td>
+								<td>
+									<span class="ip-days-number" style="color:<?php echo esc_attr( $days_color ); ?>;"><?php echo esc_html( $row['days_remaining'] ); ?></span>
+									<span class="ip-days-unit"><?php echo 1 === $days ? esc_html__( 'day', 'listingpro' ) : esc_html__( 'days', 'listingpro' ); ?></span>
+								</td>
+								<td class="ip-started"><?php echo esc_html( $row['started_date'] ); ?></td>
+								<td>
+									<div class="ip-actions">
+										<form method="post" style="display:flex; align-items:center; gap:6px;">
+											<?php wp_nonce_field( 'ip_trial_admin_action_' . $row['id'], 'ip_trial_admin_nonce' ); ?>
+											<input type="hidden" name="ip_trial_listing_id" value="<?php echo esc_attr( $row['id'] ); ?>">
+											<input type="hidden" name="ip_trial_phase" value="<?php echo esc_attr( $row['phase'] ); ?>">
+											<input
+												type="number"
+												name="ip_trial_extend_days"
+												value="7"
+												min="1"
+												class="ip-days-input"
+												aria-label="<?php esc_attr_e( 'Number of days to extend', 'listingpro' ); ?>"
+											>
+											<button
+												type="submit"
+												name="ip_trial_action"
+												value="extend"
+												class="ip-icon-btn ip-icon-btn-extend"
+												title="<?php esc_attr_e( 'Extend', 'listingpro' ); ?>"
+												aria-label="<?php esc_attr_e( 'Extend by the number of days entered', 'listingpro' ); ?>"
+											>
+												<span class="dashicons dashicons-plus-alt2" aria-hidden="true"></span>
+											</button>
+										</form>
+										<form method="post" onsubmit="return confirm('<?php echo esc_js( __( 'End this now? This cannot be undone.', 'listingpro' ) ); ?>');">
+											<?php wp_nonce_field( 'ip_trial_admin_action_' . $row['id'], 'ip_trial_admin_nonce' ); ?>
+											<input type="hidden" name="ip_trial_listing_id" value="<?php echo esc_attr( $row['id'] ); ?>">
+											<input type="hidden" name="ip_trial_phase" value="<?php echo esc_attr( $row['phase'] ); ?>">
+											<button
+												type="submit"
+												name="ip_trial_action"
+												value="end"
+												class="ip-icon-btn ip-icon-btn-end"
+												title="<?php esc_attr_e( 'End Now', 'listingpro' ); ?>"
+												aria-label="<?php esc_attr_e( 'End this trial now', 'listingpro' ); ?>"
+											>
+												<span class="dashicons dashicons-dismiss" aria-hidden="true"></span>
+											</button>
+										</form>
+									</div>
+								</td>
+							</tr>
+						<?php endforeach; ?>
+					</tbody>
+				</table>
+			</div>
+
+			<?php if ( $total_pages > 1 ) : ?>
+				<div class="tablenav ip-trial-tablenav">
+					<div class="tablenav-pages">
+						<span class="displaying-num">
+							<?php
+							/* translators: %s: total number of matching listings. */
+							echo esc_html( sprintf( _n( '%s item', '%s items', $total_items, 'listingpro' ), number_format_i18n( $total_items ) ) );
+							?>
+						</span>
+						<?php
+						echo paginate_links( array( // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- paginate_links() output is already safe.
+							'base'      => add_query_arg( 'paged', '%#%' ),
+							'format'    => '',
+							'current'   => $current_page,
+							'total'     => $total_pages,
+							'prev_text' => esc_html__( '‹', 'listingpro' ),
+							'next_text' => esc_html__( '›', 'listingpro' ),
+						) );
+						?>
+					</div>
+				</div>
+			<?php endif; ?>
+		<?php endif; ?>
+	</div>
+	<?php
 }
