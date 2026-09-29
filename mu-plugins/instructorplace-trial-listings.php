@@ -1287,7 +1287,7 @@ function ip_trial_render_admin_page() {
 			.ip-trial-admin .ip-started { color: #6b7280; }
 			.ip-trial-admin .ip-actions { display: flex; align-items: center; gap: 6px; }
 			.ip-trial-admin .ip-days-input {
-				width: 44px; height: 30px; text-align: center; border-radius: 6px;
+				width: 44px; height: 30px; min-height: auto; text-align: center; border-radius: 6px;
 				border: 1px solid #d1d5db; padding: 0 4px;
 			}
 			.ip-trial-admin .ip-icon-btn {
