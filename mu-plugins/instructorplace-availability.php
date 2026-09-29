@@ -4,8 +4,9 @@
  * Description: Lets an instructor set their availability (Green/Amber/Red)
  * from their dashboard, shows it as a badge on their listing card and
  * profile, disables the contact form and booking widget when Red, and
- * auto-downgrades a stale (30+ day untouched) status to Amber.
- * Version: 1.3.0
+ * auto-downgrades a stale (21+ day untouched) status to Amber with a
+ * nudge email.
+ * Version: 1.4.0
  *
  * DESIGN NOTES — read before changing anything
  * ---------------------------------------------
@@ -13,11 +14,11 @@
  * shows Green (IP_AVAIL_DEFAULT_STATUS) rather than nothing. The
  * alternative — showing no badge until the instructor first sets one — was
  * rejected: a missing indicator reads as broken, not "unset", to a learner
- * browsing search results. The 30-day staleness cron does NOT touch a
+ * browsing search results. The 21-day staleness cron does NOT touch a
  * listing that has never been set at all (there's no honest "last updated"
  * date to measure staleness against) — see ip_availability_run_daily_check().
  *
- * STALENESS APPLIES TO GREEN ONLY: 30 days with no update forces a Green
+ * STALENESS APPLIES TO GREEN ONLY: 21 days with no update forces a Green
  * listing to Amber — it never touches an Amber (nothing further to decay)
  * or a deliberately-set Red. A stale Green is an unverified "yes, still
  * available" claim, worth walking back to "unconfirmed". A stale Red is a
@@ -26,6 +27,18 @@
  * (a learner skips someone who's actually free again) is far less costly
  * than the failure mode of un-reddening it automatically (a learner
  * contacts someone who's actually still unavailable).
+ *
+ * NUDGE EMAIL ON AUTO-DECAY: the instructor gets one email the moment
+ * their Green decays to Amber, prompting them to confirm their real
+ * status. It fires from inside the same conditional that performs the
+ * decay, so it's naturally one-shot — once the status is Amber it no
+ * longer matches that branch on the next day's run, with no separate
+ * "already sent" flag needed. It reuses the shared branded email
+ * wrapper from instructorplace-trial-listings.php
+ * (ip_trial_email_wrapper() / ip_trial_email_section()) so it looks
+ * identical to every other automated email on this site, guarded by
+ * function_exists() in case that file is ever missing or deactivated —
+ * falls back to a plain wp_mail() rather than fatal-erroring.
  *
  * TIMESTAMP HANDLING ON AUTO-DECAY: when the cron forces a stale Green to
  * Amber, it does NOT reset '_ip_availability_updated' to now — that
@@ -88,7 +101,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'IP_AVAIL_STALE_DAYS', 30 );
+define( 'IP_AVAIL_STALE_DAYS', 21 );
 define( 'IP_AVAIL_META_STATUS', '_ip_availability_status' );
 define( 'IP_AVAIL_META_UPDATED', '_ip_availability_updated' );
 define( 'IP_AVAIL_META_AUTO', '_ip_availability_auto_amber' );
@@ -218,7 +231,7 @@ function ip_availability_ajax_set() {
 }
 
 /* =====================================================================
- * 3. DAILY CRON — 30 days untouched forces Amber
+ * 3. DAILY CRON — 21 days untouched forces Amber, sends a nudge email
  * ===================================================================== */
 
 add_action( 'wp', 'ip_availability_schedule_cron' );
@@ -270,7 +283,72 @@ function ip_availability_run_daily_check() {
 		}
 
 		ip_availability_set_status( $listing_id, 'amber', true, false );
+		ip_availability_send_nudge_email( $listing_id );
 	}
+}
+
+/**
+ * One-shot email telling the instructor their listing just auto-decayed
+ * from Green to Amber, prompting them to confirm their real status. Only
+ * ever called from the exact moment the decay happens (see the loop
+ * above) — never on its own schedule — so there's nothing to de-duplicate:
+ * once the status is Amber, the loop's own 'green' !== ... check excludes
+ * this listing from the branch that calls this function again.
+ *
+ * Reuses the shared branded email shell from
+ * instructorplace-trial-listings.php so every automated email on this
+ * site looks identical. Guarded with function_exists() since that's a
+ * cross-mu-plugin-file dependency -- falls back to a plain wp_mail() if
+ * that file is ever missing or deactivated, rather than fatal-erroring.
+ *
+ * @param int $listing_id
+ */
+function ip_availability_send_nudge_email( $listing_id ) {
+	$author_id = get_post_field( 'post_author', $listing_id );
+	$user      = get_userdata( $author_id );
+	if ( ! $user || ! is_email( $user->user_email ) ) {
+		return;
+	}
+
+	$listing_title = get_the_title( $listing_id );
+	$listing_url   = get_permalink( $listing_id );
+	$site_name     = get_bloginfo( 'name' );
+	$subject       = sprintf( '[%s] Your listing switched to Limited Slots', $site_name );
+
+	$dashboard_url = function_exists( 'listingpro_url' ) ? listingpro_url( 'listing-author' ) : '';
+	if ( empty( $dashboard_url ) ) {
+		$dashboard_url = home_url( '/' );
+	}
+
+	if ( function_exists( 'ip_trial_email_wrapper' ) && function_exists( 'ip_trial_email_section' ) ) {
+		$display_name = esc_html( $user->display_name );
+		$title_esc    = esc_html( $listing_title );
+
+		$intro = '<p style="font-size: 14px; line-height: 1.8; color: #374151;">Hi ' . $display_name . ',</p>'
+			. '<p style="font-size: 14px; line-height: 1.8; color: #374151;">Your listing <strong>' . $title_esc . '</strong> was set to Available, but it\'s been ' . (int) IP_AVAIL_STALE_DAYS . ' days since you last confirmed that — so we\'ve switched it to Limited Slots for now, to keep things accurate for learners browsing your listing.</p>';
+
+		$sections = ip_trial_email_section(
+			'🔄 Keep It Accurate',
+			'<p style="margin: 0; font-size: 14px;">If you\'re still taking on students, head to your <a style="color:#113274;" href="' . esc_url( $dashboard_url ) . '">dashboard</a> and set your availability back to Available. If your slots really are limited right now, no action needed — Limited Slots is exactly right.</p>'
+		);
+
+		$body = ip_trial_email_wrapper(
+			'Your Listing Switched to Limited Slots',
+			(int) IP_AVAIL_STALE_DAYS . ' days since your last update',
+			$intro,
+			$sections,
+			'Update Your Availability',
+			$dashboard_url
+		);
+	} else {
+		// Fallback if the trial-listings mu-plugin is ever missing/deactivated.
+		$body = '<p>Hi ' . esc_html( $user->display_name ) . ',</p>'
+			. '<p>Your listing <strong>' . esc_html( $listing_title ) . '</strong> was set to Available, but it\'s been ' . (int) IP_AVAIL_STALE_DAYS . ' days since you last confirmed that, so we\'ve switched it to Limited Slots.</p>'
+			. '<p>If you\'re still taking on students, update your availability from your <a href="' . esc_url( $dashboard_url ) . '">dashboard</a>.</p>'
+			. '<p><a href="' . esc_url( $listing_url ) . '">View your listing</a></p>';
+	}
+
+	wp_mail( $user->user_email, $subject, $body );
 }
 
 /* =====================================================================
