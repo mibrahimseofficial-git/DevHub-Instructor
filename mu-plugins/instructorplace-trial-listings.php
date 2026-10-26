@@ -9,7 +9,7 @@
  * real countdown shows in the admin "Expire After" column and the
  * front-end dashboard (via a small child-theme template override —
  * see child-theme/templates/dashboard/listings.php in this repo).
- * Version: 1.9.0
+ * Version: 1.10.0
  *
  * DESIGN NOTES — read before changing anything
  * ---------------------------------------------
@@ -82,7 +82,7 @@
  * admin approves it.
  *
  * Only if the listing was submitted without payment (Plan_id is empty,
- * 'none', or already the Free plan). Anyone who pays for Standard or Premium
+ * 'none', or already the Free plan). Anyone who pays for Plus or Premium
  * at signup is never touched — this mirrors a real purchase, so it's left
  * alone, and paying does not consume the trial.
  *
@@ -107,7 +107,7 @@
  *
  * Scoped to trial-descended listings only, via the '_ip_trial_ended' meta
  * key — the only thing that ever writes it is ip_trial_downgrade() above,
- * so a listing that was always Free/Standard/Premium, or a Free listing
+ * so a listing that was always Free/Plus/Premium, or a Free listing
  * that never went through a trial, has no such meta and this never touches
  * it. See ip_trial_run_free_expiry_check() and ip_trial_expire_free_listing().
  */
@@ -201,6 +201,46 @@ function ip_trial_get_free_plan_id() {
 function ip_trial_apply_plan( $listing_id, $plan_id ) {
 	listing_set_metabox( 'Plan_id', $plan_id, $listing_id );
 	update_post_meta( $listing_id, 'plan_id', $plan_id );
+}
+
+/**
+ * Timestamp (site-local, same basis as _ip_trial_start) at which the trial
+ * ends, including any admin extension; null if no trial start is recorded.
+ *
+ * @param int $listing_id
+ * @return int|null
+ */
+function ip_trial_end_timestamp( $listing_id ) {
+	$start = (int) get_post_meta( $listing_id, '_ip_trial_start', true );
+	if ( ! $start ) {
+		return null;
+	}
+	// Same arithmetic as ip_trial_days_remaining_in_trial(): the trial is
+	// over once IP_TRIAL_DAYS plus any admin extension has elapsed.
+	$extension = (int) get_post_meta( $listing_id, '_ip_trial_extension_days', true );
+	return $start + ( IP_TRIAL_DAYS + $extension ) * DAY_IN_SECONDS;
+}
+
+/**
+ * Edit-listing URL for a listing, built the way ListingPro's own dashboard
+ * does it. Falls back to the dashboard if the edit page can't be resolved.
+ *
+ * @param int    $listing_id
+ * @param string $fallback
+ * @return string
+ */
+function ip_trial_edit_listing_url( $listing_id, $fallback = '' ) {
+	global $listingpro_options;
+	$edit = isset( $listingpro_options['edit-listing'] ) ? $listingpro_options['edit-listing'] : '';
+	if ( $edit ) {
+		$page_id = url_to_postid( $edit );
+		if ( $page_id ) {
+			$edit = get_permalink( $page_id );
+		}
+		$sep = ( false !== strpos( $edit, '?' ) ) ? '&' : '?';
+		return $edit . $sep . 'lp_post=' . (int) $listing_id;
+	}
+	return $fallback;
 }
 
 /**
@@ -758,28 +798,43 @@ function ip_trial_send_email( $listing_id, $type, $days_remaining = 0 ) {
 
 	switch ( $type ) {
 		case 'start':
+			$end_ts   = ip_trial_end_timestamp( $listing_id );
+			$end_date = $end_ts ? gmdate( 'j F Y', $end_ts ) : '';
+			$edit_url = ip_trial_edit_listing_url( $listing_id, $dashboard_url );
+
 			$subject = sprintf( '[%s] Your free %d-day Premium trial has started', $site_name, IP_TRIAL_DAYS );
 
-			$intro = '<p style="font-size: 14px; line-height: 1.8; color: #374151;">Hi ' . $display_name . ',</p>'
-				. '<p style="font-size: 14px; line-height: 1.8; color: #374151;">Welcome to Instructor Place! Your listing <strong>' . $title_esc . '</strong> is now live with a free ' . (int) IP_TRIAL_DAYS . '-day Premium trial.</p>';
+			$p = 'font-size: 14px; line-height: 1.8; color: #374151;';
 
+			$intro = '<p style="' . $p . '">Hi ' . $display_name . ',</p>'
+				. '<p style="' . $p . '">Welcome to Instructor Place! Your listing <strong>' . $title_esc . '</strong> is now live with a free ' . (int) IP_TRIAL_DAYS . '-day Premium trial'
+				. ( $end_date ? ', which ends on <strong>' . esc_html( $end_date ) . '</strong>' : '' ) . '.</p>'
+				. '<p style="' . $p . '"><strong>No card needed, and nothing will be charged.</strong> When the trial ends your listing simply moves to the Free plan.</p>'
+				. '<p style="' . $p . '">Learner enquiries about your lessons will be sent straight to you, at the email address on your account.</p>';
+
+			$tick = '<div style="margin: 10px 0; font-size: 14px;"><strong>✓</strong> ';
 			$sections = ip_trial_email_section(
-				'📝 What\'s Included',
-				'<div style="margin: 10px 0; font-size: 14px;"><strong>✓</strong> Top placement in search results</div>'
-					. '<div style="margin: 10px 0; font-size: 14px;"><strong>✓</strong> Full profile unlocked — gallery, contact details, map, and more</div>'
-					. '<div style="margin: 10px 0; font-size: 14px;"><strong>✓</strong> Increased visibility to learners searching in your area</div>'
+				'✨ What You Get With Premium',
+				$tick . '<strong>Priority placement</strong> above Free listings in search results</div>'
+					. $tick . '<strong>Photo gallery and video</strong> to show you, your car and your teaching style</div>'
+					. $tick . '<strong>Map and location</strong> so learners can see where you cover</div>'
+					. $tick . '<strong>Learner enquiry form</strong> on your listing</div>'
+					. $tick . '<strong>Website and social media links</strong> so learners can find you elsewhere</div>'
+					. $tick . '<strong>Business hours, bookings and FAQs</strong> to answer common questions up front</div>'
+					. $tick . '<strong>Tagline, tags, offers and announcements</strong> to stand out</div>'
 			) . ip_trial_email_section(
-				'💡 Before It Ends',
-				'<p style="margin: 0; font-size: 14px;">If you\'d like to keep Premium visibility after the trial, upgrade any time from your <a style="color:#113274;" href="' . esc_url( $dashboard_url ) . '">dashboard</a>. Otherwise your listing automatically switches to a free Basic listing when the trial ends — it stays live either way.</p>'
+				'💡 After Your Trial',
+				'<p style="margin: 0 0 10px 0; font-size: 14px;">On the <strong>Free</strong> plan your listing stays live, but it no longer has: priority placement, photo gallery and video, map, learner enquiry form, website and social links, business hours, bookings and FAQs.</p>'
+					. '<p style="margin: 0; font-size: 14px;">To keep any of these, choose <strong>Plus</strong> or <strong>Premium</strong> from your <a style="color:#113274;" href="' . esc_url( $dashboard_url ) . '">dashboard</a> at any time.</p>'
 			);
 
 			$body = ip_trial_email_wrapper(
 				'Your Free Trial Has Started! 🎉',
-				IP_TRIAL_DAYS . ' days of Premium visibility, on us',
+				$end_date ? 'Premium until ' . $end_date . ' — no card needed' : IP_TRIAL_DAYS . ' days of Premium, on us',
 				$intro,
 				$sections,
-				'View Your Listing',
-				$listing_url
+				'Complete your profile',
+				$edit_url
 			);
 			break;
 
@@ -792,7 +847,7 @@ function ip_trial_send_email( $listing_id, $type, $days_remaining = 0 ) {
 
 			$sections = ip_trial_email_section(
 				'⏳ What Happens Next',
-				'<p style="margin: 0; font-size: 14px;">After your trial ends, your listing switches to a free Basic listing: it stays live, but loses top placement and some profile features.</p>'
+				'<p style="margin: 0; font-size: 14px;">After your trial ends, your listing switches to the Free plan: it stays live, but loses priority placement, photo gallery and video, map, enquiry form, website and social links, and other profile features.</p>'
 			) . ip_trial_email_section(
 				'💡 Keep Your Premium Visibility',
 				'<p style="margin: 0; font-size: 14px;">Upgrade from your <a style="color:#113274;" href="' . esc_url( $dashboard_url ) . '">dashboard</a> before the trial ends to keep everything as-is.</p>'
@@ -812,11 +867,11 @@ function ip_trial_send_email( $listing_id, $type, $days_remaining = 0 ) {
 			$subject = sprintf( '[%s] Your Premium trial has ended', $site_name );
 
 			$intro = '<p style="font-size: 14px; line-height: 1.8; color: #374151;">Hi ' . $display_name . ',</p>'
-				. '<p style="font-size: 14px; line-height: 1.8; color: #374151;">Your free Premium trial for <strong>' . $title_esc . '</strong> has ended, and your listing is now on the free Basic plan. Your listing is still live and searchable.</p>';
+				. '<p style="font-size: 14px; line-height: 1.8; color: #374151;">Your free Premium trial for <strong>' . $title_esc . '</strong> has ended, and your listing is now on the Free plan. Your listing is still live and searchable.</p>';
 
 			$sections = ip_trial_email_section(
 				'🚀 Want Premium Back?',
-				'<p style="margin: 0; font-size: 14px;">You can upgrade to Premium or Standard at any time from your <a style="color:#113274;" href="' . esc_url( $dashboard_url ) . '">dashboard</a> to restore top placement and full profile features.</p>'
+				'<p style="margin: 0; font-size: 14px;">You can upgrade to Plus or Premium at any time from your <a style="color:#113274;" href="' . esc_url( $dashboard_url ) . '">dashboard</a> to restore priority placement and your full profile features.</p>'
 			);
 
 			$body = ip_trial_email_wrapper(
@@ -834,7 +889,7 @@ function ip_trial_send_email( $listing_id, $type, $days_remaining = 0 ) {
 			$subject  = sprintf( '[%s] Your free listing expires in %d %s', $site_name, $days_remaining, $day_word );
 
 			$intro = '<p style="font-size: 14px; line-height: 1.8; color: #374151;">Hi ' . $display_name . ',</p>'
-				. '<p style="font-size: 14px; line-height: 1.8; color: #374151;">Your listing <strong>' . $title_esc . '</strong> is currently live on our free Basic plan, and that listing period ends in <strong>' . (int) $days_remaining . ' ' . esc_html( $day_word ) . '</strong>.</p>';
+				. '<p style="font-size: 14px; line-height: 1.8; color: #374151;">Your listing <strong>' . $title_esc . '</strong> is currently live on our Free plan, and that listing period ends in <strong>' . (int) $days_remaining . ' ' . esc_html( $day_word ) . '</strong>.</p>';
 
 			$sections = ip_trial_email_section(
 				'⏳ What Happens Next',
